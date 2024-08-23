@@ -64,7 +64,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         if units == Units.PIXELS:
             self.size_lims = (self.size_lims[0] * self.res, self.size_lims[1] * self.res)
 
-        # create shapey box for the dataset roi
+        # get the intersection of the polygons with the outer boundary shape
         if outer_boundary_shape is not None:
             outer_boundary_shape = gpd.read_file(outer_boundary_shape)
             self.outer_shape = outer_boundary_shape.geometry.union_all()
@@ -79,10 +79,26 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         elif isinstance(self.multi_polygons, MultiPolygon):
             self.multi_polygons = list(self.multi_polygons.geoms)
 
+        self.intersection_percentage_th = intersection_percentage_th
         self.length = length
         self.batch_size = batch_size
 
-        # ToDo: change the size to pixel units
+        # create random samplers, this is only generated once and will be used
+        # across all the epochs
+        areas = []
+        self.bboxes = []
+        for _ in range(self.length):
+            window = self.sample_window(intersection_percentage_th=self.intersection_percentage_th)
+            bbox = BoundingBox(window.bounds[0],window.bounds[2],
+                               window.bounds[1], window.bounds[3], 
+                               self.roi.mint, self.roi.maxt)
+            self.bboxes.append(bbox)
+            areas.append(bbox.area)
+
+        # torch.multinomial requires float probabilities > 0
+        self.areas = torch.tensor(areas, dtype=torch.float)
+        if torch.sum(self.areas) == 0:
+            self.areas += 1
 
     def __iter__(self) -> Iterator[BoundingBox]:
         """Return the index of a dataset.
@@ -91,18 +107,9 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
             (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
         """
         for _ in range(len(self)):
-            windows = [
-                self.sample_window(intersection_percentage_th=90) for _ in range(self.batch_size)
-            ]
-            batch_windows = []
-            for window in windows:
-                min_x, min_y, max_x, max_y = window.bounds
-                bbox = BoundingBox(
-                    min_x, max_x, min_y, max_y, self.roi.mint, self.roi.maxt
-                )
-                batch_windows.append(bbox)
-
-            yield batch_windows
+            # Choose a random tile, weighted by area
+            batch_indices = torch.multinomial(self.areas, self.batch_size)
+            yield [self.bboxes[i] for i in batch_indices]
 
     def __len__(self) -> int:
         """Return the number of samples in a single epoch.
@@ -110,7 +117,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         Returns:
             length of the epoch
         """
-        return self.length
+        return self.length // self.batch_size
 
     def sample_window_size(self) -> tuple[int, int]:
         """Randomly sample the window size."""
