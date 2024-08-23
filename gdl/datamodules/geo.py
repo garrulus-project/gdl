@@ -270,7 +270,7 @@ class GarrulusAoiDataModule(GeoDataModule):
         batch_size: int = 64,
         size_lims: tuple[float, float] = (128,256),
         img_size: int = 224,
-        length: int | None = None,
+        length: int = 1000,
         num_workers: int = 1,
         class_set: int = 5,
         use_prior_labels: bool = False,
@@ -303,11 +303,12 @@ class GarrulusAoiDataModule(GeoDataModule):
         self.class_set = class_set
         self.img_size = img_size
         self.size_lims = size_lims
+        self.length = length
 
         super().__init__(
             GarrulusSegmentationDataset,
             batch_size=batch_size,
-            length=length,
+            length=self.length,
             num_workers=num_workers,
             **kwargs,
         )
@@ -366,7 +367,7 @@ class GarrulusAoiDataModule(GeoDataModule):
                 size_lims=self.size_lims,
                 polygons=train_polygon,
                 batch_size=self.batch_size,
-                length=self.batch_size,
+                length=self.length,
             )
 
         # ToDo: use grid sample within AOI for validation and test
@@ -376,7 +377,7 @@ class GarrulusAoiDataModule(GeoDataModule):
                 size_lims=self.size_lims,
                 polygons=validation_polygon,
                 batch_size=self.batch_size,
-                length=self.batch_size,
+                length=self.length,
             )
 
         # # ToDo: split prediction
@@ -386,7 +387,7 @@ class GarrulusAoiDataModule(GeoDataModule):
                 size_lims=self.size_lims,
                 polygons=test_polygon,
                 batch_size=self.batch_size,
-                length=self.batch_size,
+                length=self.length,
             )
 
             self.predict_dataset = self.test_dataset
