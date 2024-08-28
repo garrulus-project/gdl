@@ -1,3 +1,5 @@
+from torchgeo.trainers import SemanticSegmentationTask
+from torchmetrics import MetricCollection
 from torchmetrics.classification import (
     Accuracy,
     FBetaScore,
@@ -5,12 +7,10 @@ from torchmetrics.classification import (
     Precision,
     Recall,
 )
-from torchmetrics import MetricCollection
-from torchgeo.trainers import SemanticSegmentationTask
 
 
 class GarrulusSemanticSegmentationTask(SemanticSegmentationTask):
-    def __init__(self, *args, labels: list[str] | None = None, **kwargs):
+    def __init__(self, *args, labels: list[str] | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
 
     def configure_metrics(self) -> None:

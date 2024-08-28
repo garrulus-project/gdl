@@ -1,21 +1,16 @@
 import abc
+from collections.abc import Callable
+from typing import Any, NoReturn
+
+import matplotlib.pyplot as plt
 import torch
 from matplotlib.colors import ListedColormap
 from matplotlib.patches import Patch
-import matplotlib.pyplot as plt
-
-from torchgeo.datasets import RasterDataset
-from torchgeo.datasets import IntersectionDataset
-
-from torchgeo.datasets import (
-    BoundingBox,
-)
-from typing import Any, Callable, Optional
+from torchgeo.datasets import BoundingBox, IntersectionDataset, RasterDataset
 
 
 class GarrulusImage(RasterDataset):
-    """
-    This class is responsible for handling and plotting raster image.
+    """This class is responsible for handling and plotting raster image.
     The original RGB image data consists of 4 bands, and the first 3
     bands are RGB bands.
     """
@@ -29,8 +24,7 @@ class GarrulusImage(RasterDataset):
     rgb_bands = ["B01", "B02", "B03"]
 
     def plot(self, sample):
-        """
-        Plot the RGB image from the sample.
+        """Plot the RGB image from the sample.
 
         Args:
             sample (dict): A dictionary containing image data with the key 'image'.
@@ -52,8 +46,7 @@ class GarrulusImage(RasterDataset):
 
 
 class GarrulusMask(RasterDataset, abc.ABC):
-    """
-    This class handles the segmentation masks and provides a method
+    """This class handles the segmentation masks and provides a method
     to plot these masks with appropriate color maps.
     """
 
@@ -80,9 +73,8 @@ class GarrulusMask(RasterDataset, abc.ABC):
         5: "VEGETATION",
     }
 
-    def __init__(self, paths, transforms=None):
-        """
-        Initialize the GarrulusMask object with file paths and set up the color map.
+    def __init__(self, paths, transforms=None) -> None:
+        """Initialize the GarrulusMask object with file paths and set up the color map.
 
         Args:
             paths (str): The file path to the mask dataset.
@@ -97,8 +89,7 @@ class GarrulusMask(RasterDataset, abc.ABC):
         super().__init__(paths, transforms=transforms)
 
     def plot(self, sample):
-        """
-        Plot the segmentation mask from the sample.
+        """Plot the segmentation mask from the sample.
 
         Args:
             sample (dict): A dictionary containing mask data with the key 'mask'.
@@ -138,8 +129,7 @@ class GarrulusMask(RasterDataset, abc.ABC):
 
 
 class GarrulusSegmentationDataset(IntersectionDataset):
-    """
-    This class combines raster images and segmentation masks, providing methods
+    """This class combines raster images and segmentation masks, providing methods
     for verifying and plotting the dataset.
     """
 
@@ -167,10 +157,9 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         mask_paths="datasets/garrulus-field-D",
         rgb_bands=["B01", "B02", "B03"],
         grid_shape_path=None,
-        transforms: Optional[Callable[[dict[str, Any]], dict[str, Any]]] = None,
-    ):
-        """
-        Initialize the GarrulusSegmentationDataset with image and mask paths.
+        transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+    ) -> None:
+        """Initialize the GarrulusSegmentationDataset with image and mask paths.
 
         Args:
             raster_image_paths (str): Path to the raster images.
@@ -223,15 +212,12 @@ class GarrulusSegmentationDataset(IntersectionDataset):
 
         return sample
 
-    def _verify(self):
-        """
-        Verify that the dataset is valid by checking the checksums.
-        """
+    def _verify(self) -> NoReturn:
+        """Verify that the dataset is valid by checking the checksums."""
         raise NotImplementedError
 
     def plot(self, sample, show_titles=True, suptitle=None):
-        """
-        Plot a sample from the dataset.
+        """Plot a sample from the dataset.
 
         Args:
             sample (dict): A sample returned by RasterDataset.__getitem__.
