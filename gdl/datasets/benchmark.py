@@ -1,9 +1,8 @@
 # Benchmark dataset configuration for different fields across different scenarios
 
 def get_field_D_grid_split():
-    """
-    Get the split indices of the grid cells within field D.
-    ToDo: move this function to benchmark.py
+    """Get the split indices of the grid cells within field D.
+    ToDo: move this function to benchmark.py.
 
     Returns:
         list: List of grid cell indices.
