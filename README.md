@@ -12,10 +12,10 @@ pip install git+https://git.inf.h-brs.de/garrulus/dfm/gdl@main
 
 ## Features and example usage
 
-* Mask label generation from geopackages for `field-D`
-* RasterDataset for semantic segmentation
-* Area of interest (AOI) sampling (sample inside AOI or grid cells). This also allows to sample within predifined train, valid, test grid cells
-* Semantic segmentation tasks
+* Mask label generation from geopackages for `field-D` ([notebook](docs/examples/create_segmentation_mask.ipynb))
+* Area of interest (AOI) sampling (sample inside AOI or grid cells). This also allows to sample within predifined train, valid, test grid cells ([notebook](docs/examples/aoi_sampler.ipynb))
+* RasterDataset for semantic segmentation ([notebook](docs/examples/create_segmentation_dataset.ipynb))
+* Semantic segmentation tasks ([notebook](docs/examples/train_semantic_segmentation.ipynb))
 
 ## Benchmark datasets
 
