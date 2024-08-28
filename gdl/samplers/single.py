@@ -1,18 +1,16 @@
 import abc
 from collections.abc import Iterator
-from typing import Optional
 
+import geopandas as gpd
 import torch
 from rtree.index import Index, Property
+from shapely.geometry import MultiPolygon, Polygon, box
 from torch.utils.data import Sampler
-
 from torchgeo.datasets import BoundingBox, GeoDataset
 from torchgeo.samplers.constants import Units
 from torchgeo.samplers.utils import _to_tuple
 
-from gdl.samplers.aio_sampler import AoiSampler
-from shapely.geometry import MultiPolygon, Polygon, box
-import geopandas as gpd
+from gdl.samplers.aoi_sampler import AoiSampler
 
 
 class GeoSampler(Sampler[BoundingBox], abc.ABC):
@@ -24,7 +22,7 @@ class GeoSampler(Sampler[BoundingBox], abc.ABC):
     longitude, height, width, projection, coordinate system, and time.
     """
 
-    def __init__(self, dataset: GeoDataset, roi: Optional[BoundingBox] = None) -> None:
+    def __init__(self, dataset: GeoDataset, roi: BoundingBox | None = None) -> None:
         """Initialize a new Sampler instance.
 
         Args:
@@ -69,13 +67,14 @@ class RandomAoiGeoSampler(GeoSampler):
         dataset: GeoDataset,
         size_lims: tuple[float, float] | float,
         polygons: list[Polygon],
-        length: Optional[int],
-        roi: Optional[BoundingBox] = None,
+        length: int | None,
+        roi: BoundingBox | None = None,
         units: Units = Units.PIXELS,
         max_retries: int = 50000,
-        outer_boundary_shape: str = None,
+        outer_boundary_shape: str | None = None,
     ) -> None:
         """Initialize a new Sampler instance.
+
         Args:
             dataset: dataset to index from
             size_lims: minimum and maximum size limit to sample windows
