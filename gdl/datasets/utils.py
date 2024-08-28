@@ -1,13 +1,13 @@
+import os
+
+import geopandas as gpd
 import numpy as np
 import rasterio
-import os
-import geopandas as gpd
 from rasterio.features import geometry_mask
 
 
-def create_mask(raster_image_source, geopackages, mask_output_path="mask_output"):
-    """
-    Create a raster image mask given geopackage labels.
+def create_mask(raster_image_source, geopackages, mask_output_path="mask_output") -> None:
+    """Create a raster image mask given geopackage labels.
 
     Args:
         raster_image_source (str): Path to the raster image file.
@@ -74,8 +74,8 @@ def create_intersecting_grids(
     grid_path,
     fenced_area_path,
 ):
-    """
-    Create intersecting grid cells within a fenced area.
+    """Create intersecting grid cells within a fenced area.
+
     Args:
         grid_path (str): Path to the grid file.
         fenced_area_path (str): Path to the fenced area file.

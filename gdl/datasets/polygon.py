@@ -1,16 +1,15 @@
-import rasterio
-from rasterio.plot import show
 import matplotlib.pyplot as plt
+import rasterio
 from matplotlib.patches import Polygon
+from rasterio.plot import show
+
 from .utils import create_intersecting_grids
 
 
 class PolygonSplitter:
-    """
-    A class helper for spliting the given polygon into train, validation and test polygons.
-    """
+    """A class helper for spliting the given polygon into train, validation and test polygons."""
 
-    def __init__(self, grid_path, fenced_area_path):
+    def __init__(self, grid_path, fenced_area_path) -> None:
         self.grid_path = grid_path
         self.fenced_area_path = fenced_area_path
         self.intersecting_grids = create_intersecting_grids(
@@ -18,8 +17,7 @@ class PolygonSplitter:
         )
 
     def get_polygon_by_indices(self, grid_indices):
-        """
-        Create train polygon given indices of the grid cells.
+        """Create train polygon given indices of the grid cells.
 
         Args:
             grid_indices (list): List of grid indices.
@@ -33,9 +31,8 @@ class PolygonSplitter:
                 polygons.append(grid["geometry"])
         return polygons
 
-    def plot(self, raster_image, polygons, ax=None, title="Polygon visualization"):
-        """
-        Plot the raster image with the given polygons.
+    def plot(self, raster_image, polygons, ax=None, title="Polygon visualization") -> None:
+        """Plot the raster image with the given polygons.
 
         Args:
             raster_image (str): Path to the raster image.
