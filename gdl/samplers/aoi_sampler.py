@@ -1,7 +1,10 @@
-from typing import Sequence
+from collections.abc import Sequence
 
+import geopandas as gpd
 import numpy as np
-from shapely.geometry import Polygon, MultiPolygon, LinearRing
+import torch
+from matplotlib import pyplot as plt
+from shapely.geometry import LinearRing, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
 
@@ -17,12 +20,12 @@ class AoiSampler:
     https://github.com/azavea/raster-vision/blob/master/rastervision_core/rastervision/core/data/utils/aoi_sampler.py
     """
 
-    def __init__(self, polygons: Sequence[Polygon], roi_box=None) -> None:
+    def __init__(self, polygons: Sequence[Polygon], roi_box=None, size_lims=(128,258)) -> None:
+        """Args:
+        polygons: List of shapely Polygon object.
+        roi: Region of interest. Defaults to None.
         """
-        Args:
-            polygons: List of shapely Polygon object.
-            roi: Region of interest. Defaults to None.
-        """
+        self.size_lims = size_lims
         # merge overlapping polygons, if any
         merged_polygons = unary_union(polygons)
         if roi_box is not None:
@@ -208,3 +211,73 @@ class AoiSampler:
         area[area < 0] = 0
         area = np.sqrt(area)
         return area
+
+    def sample_window_size(self) -> tuple[int, int]:
+        """Randomly sample the window size."""
+        sz_min, sz_max = self.size_lims
+        if sz_max == sz_min + 1:
+            return sz_min, sz_min
+        # randomly sample windows given (float) size minimum and maximum
+        size = torch.rand(1) * (sz_max - sz_min) + sz_min
+        return size.item(), size.item()
+
+    def sample_window_loc(self, h: int, w: int) -> tuple[int, int]:
+        """Randomly sample coordinates of the top left corner of the window."""
+        x, y = self.sample().round().T
+        x, y = int(x.item()), int(y.item())
+        return x, y
+
+    def sample_window(self, intersection_percentage_th: int =0.0):
+        """Randomly sample a window that satisfies the intersection_percentage_th, that is
+        minimum intersection percentage with the given polygons.
+        """
+        h, w = self.sample_window_size()
+        x, y = self.sample_window_loc(h, w)
+        window = box(x, y, x + w, y + h)
+        intersection_area = sum(
+            window.intersection(polygon).area for polygon in self.polygons
+        )
+        intersection_percentage = (intersection_area / window.area) * 100
+
+        if intersection_percentage <= intersection_percentage_th:
+            return self.sample_window(intersection_percentage_th)
+        else:
+            return window
+
+    def show_windows(self, polygons, 
+                 windows, 
+                 image=None, 
+                 boundary_shape=None, 
+                 raster_transform=None, 
+                 title='Sampled Windows') -> None:
+        """Visualize generated windows along with the raster image and fenced area if given
+        Args:
+            polygons: a list of grids in polygons
+            windows: windows to visualize
+            image: raster image
+            boundary_shape: boundary of the raster image (fenced area), it should be 
+                polygon type
+            raster_transform: raster transform
+            title: title of the plot.
+        """
+        fig, ax = plt.subplots()
+    
+        if image is not None:
+            show(image, transform=raster_transform, ax=ax, cmap='gray')
+        
+        for polygon in polygons:
+            x, y = polygon.exterior.xy
+            ax.fill(x, y, alpha=0.5, fc='gray', edgecolor='black')
+    
+        # draw windows on top of the image
+        for w in windows:
+            x, y = w.exterior.xy
+            ax.plot(x, y, color='red')
+    
+        # plot boudary shape (fenced_area)
+        if boundary_shape:
+            gpd.GeoSeries(boundary_shape).boundary.plot(ax=ax, color='green', linewidth=2)
+    
+        ax.autoscale()
+        ax.set_title(title)
+        plt.show()
