@@ -1,20 +1,162 @@
-from torchgeo.datamodules import GeoDataModule
-from ..datasets.geo import GarrulusSegmentationDataset
 from typing import Any
-import kornia.augmentation as K
-from kornia.constants import DataKey, Resample
-from torchgeo.transforms import AugmentationSequential
-import geopandas as gpd
-from torchgeo.samplers import GridGeoSampler, RandomBatchGeoSampler
-from torchgeo.datasets import BoundingBox
-from torchgeo.samplers.utils import _to_tuple
-from torchgeo.datasets.splits import roi_split
-from torchgeo.datasets import UnionDataset
 
-from ..samplers.batch import RandomBatchAoiGeoSampler
+import geopandas as gpd
+import kornia.augmentation as K
 import torch
-from ..datasets.polygon import PolygonSplitter
+from kornia.constants import DataKey, Resample
+from torchgeo.datamodules import GeoDataModule
+from torchgeo.datasets import BoundingBox, UnionDataset
+from torchgeo.datasets.splits import roi_split
+from torchgeo.samplers import GridGeoSampler, RandomBatchGeoSampler
+from torchgeo.samplers.utils import _to_tuple
+from torchgeo.transforms import AugmentationSequential
+
 from ..datasets.benchmark import get_field_D_grid_split
+from ..datasets.geo import GarrulusSegmentationDataset
+from ..datasets.polygon import PolygonSplitter
+from ..samplers.batch import RandomBatchAoiGeoSampler
+
+
+class GarrulusAoiDataModule(GeoDataModule):
+    """LightningDataModule implementation for the Garrulus dataset.
+
+    This module handles data loading and augmentation for the Garrulus
+    dataset. It allows for splitting the data based on specified grid
+    IDs.
+    """
+
+    def __init__(
+        self,
+        raster_image_path: str | None = None,
+        mask_path: str | None = None,
+        grid_shape_path: str | None = None,
+        fenced_area_shape_path: str | None = None,
+        batch_size: int = 64,
+        size_lims: tuple[float, float] = (128,256),
+        img_size: int = 224,
+        length: int = 1000,
+        num_workers: int = 1,
+        class_set: int = 5,
+        use_prior_labels: bool = False,
+        prior_smoothing_constant: float = 1e-4,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize a new GarrulusAoiDataModule instance.
+
+        Args:
+            raster_image_path (str): Path to the raster image data.
+            mask_path (str): Path to the mask data.
+            grid_shape_path (str): Path to the shapefile containing grid shapes.
+            fenced_area_shape_path (str): Path to the shapefile defining fenced areas.
+            batch_size (int): Size of each mini-batch.
+            size_lims (int,int): Minimum and maximum size of sampled windows
+            img_size (int): Size of the input image.
+            length (int | None): Length of each training epoch.
+            num_workers (int): Number of workers for parallel data loading.
+            class_set (int): The high-resolution land cover class set to use (5 or 7).
+            use_prior_labels (bool): Whether to use a prior over high-resolution
+                                     classes instead of the labels themselves.
+            prior_smoothing_constant (float): Smoothing constant added when using prior labels.
+            **kwargs (Any): Additional keyword arguments passed to the base class.
+        """
+        self.raster_image_path = raster_image_path
+        self.mask_path = mask_path
+        self.grid_shape_path = grid_shape_path
+        self.fenced_area_shape_path = fenced_area_shape_path
+        self.use_prior_labels = use_prior_labels
+        self.class_set = class_set
+        self.img_size = img_size
+        self.size_lims = size_lims
+        self.length = length
+
+        super().__init__(
+            GarrulusSegmentationDataset,
+            batch_size=batch_size,
+            length=self.length,
+            num_workers=num_workers,
+            **kwargs,
+        )
+
+        self.train_aug = AugmentationSequential(
+            K.Resize(self.img_size),
+            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
+            # K.RandomResizedCrop(_to_tuple(self.patch_size), scale=(0.6, 1.0)),
+            K.RandomVerticalFlip(p=0.5),
+            K.RandomHorizontalFlip(p=0.5),
+            data_keys=["image", "mask"],
+            extra_args={
+                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+            },
+        )
+        self.test_aug = AugmentationSequential(
+            K.Resize(self.img_size),
+            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
+            data_keys=["image", "mask"],
+            extra_args={
+                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+            },
+        )
+        self.valid_aug = AugmentationSequential(
+            K.Resize(self.img_size),
+            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
+            data_keys=["image", "mask"],
+            extra_args={
+                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+            },
+        )
+
+    def setup(self, stage: str) -> None:
+        """Set up datasets and samplers for training, validation, testing, or prediction.
+
+        Args:
+            stage (str): One of 'fit', 'validate', 'test', or 'predict'.
+        """
+        self.dataset = GarrulusSegmentationDataset(
+            self.raster_image_path,
+            self.mask_path,
+            transforms=self.train_aug,
+            **self.kwargs, 
+        )
+
+        ps = PolygonSplitter(self.grid_shape_path, self.fenced_area_shape_path)
+
+        train_indices, validation_indices, test_indices = get_field_D_grid_split()
+        train_polygon = ps.get_polygon_by_indices(grid_indices=train_indices)
+        validation_polygon = ps.get_polygon_by_indices(grid_indices=validation_indices)
+        test_polygon = ps.get_polygon_by_indices(grid_indices=test_indices)
+
+        if stage == "fit":
+            self.train_batch_sampler = RandomBatchAoiGeoSampler(
+                self.dataset,
+                size_lims=self.size_lims,
+                polygons=train_polygon,
+                batch_size=self.batch_size,
+                length=self.length,
+            )
+
+        # ToDo: use grid sample within AOI for validation and test
+        if stage in ["fit", "validate"]:
+            self.val_sampler = RandomBatchAoiGeoSampler(
+                self.dataset,
+                size_lims=self.size_lims,
+                polygons=validation_polygon,
+                batch_size=self.batch_size,
+                length=self.length,
+            )
+
+        # # ToDo: split prediction
+        if stage in ["test", "predict"]:
+            self.test_sampler = RandomBatchAoiGeoSampler(
+                self.dataset,
+                size_lims=self.size_lims,
+                polygons=test_polygon,
+                batch_size=self.batch_size,
+                length=self.length,
+            )
+
+            self.predict_dataset = self.test_dataset
+            self.predict_sampler = self.test_sampler
+
 
 
 class GarrulusGridDataModule(GeoDataModule):
@@ -66,10 +208,10 @@ class GarrulusGridDataModule(GeoDataModule):
 
     def __init__(
         self,
-        raster_image_path: str = None,
-        mask_path: str = None,
-        grid_shape_path: str = None,
-        fenced_area_shape_path: str = None,
+        raster_image_path: str | None = None,
+        mask_path: str | None = None,
+        grid_shape_path: str | None = None,
+        fenced_area_shape_path: str | None = None,
         batch_size: int = 64,
         patch_size: int = 256,
         length: int | None = None,
@@ -253,142 +395,3 @@ class GarrulusGridDataModule(GeoDataModule):
     #     return super().on_after_batch_transfer(batch, dataloader_idx)
 
 
-class GarrulusAoiDataModule(GeoDataModule):
-    """LightningDataModule implementation for the Garrulus dataset.
-
-    This module handles data loading and augmentation for the Garrulus
-    dataset. It allows for splitting the data based on specified grid
-    IDs.
-    """
-
-    def __init__(
-        self,
-        raster_image_path: str = None,
-        mask_path: str = None,
-        grid_shape_path: str = None,
-        fenced_area_shape_path: str = None,
-        batch_size: int = 64,
-        size_lims: tuple[float, float] = (128,256),
-        img_size: int = 224,
-        length: int = 1000,
-        num_workers: int = 1,
-        class_set: int = 5,
-        use_prior_labels: bool = False,
-        prior_smoothing_constant: float = 1e-4,
-        **kwargs: Any,
-    ) -> None:
-        """Initialize a new GarrulusAoiDataModule instance.
-
-        Args:
-            raster_image_path (str): Path to the raster image data.
-            mask_path (str): Path to the mask data.
-            grid_shape_path (str): Path to the shapefile containing grid shapes.
-            fenced_area_shape_path (str): Path to the shapefile defining fenced areas.
-            batch_size (int): Size of each mini-batch.
-            size_lims (int,int): Minimum and maximum size of sampled windows
-            img_size (int): Size of the input image.
-            length (int | None): Length of each training epoch.
-            num_workers (int): Number of workers for parallel data loading.
-            class_set (int): The high-resolution land cover class set to use (5 or 7).
-            use_prior_labels (bool): Whether to use a prior over high-resolution
-                                     classes instead of the labels themselves.
-            prior_smoothing_constant (float): Smoothing constant added when using prior labels.
-            **kwargs (Any): Additional keyword arguments passed to the base class.
-        """
-        self.raster_image_path = raster_image_path
-        self.mask_path = mask_path
-        self.grid_shape_path = grid_shape_path
-        self.fenced_area_shape_path = fenced_area_shape_path
-        self.use_prior_labels = use_prior_labels
-        self.class_set = class_set
-        self.img_size = img_size
-        self.size_lims = size_lims
-        self.length = length
-
-        super().__init__(
-            GarrulusSegmentationDataset,
-            batch_size=batch_size,
-            length=self.length,
-            num_workers=num_workers,
-            **kwargs,
-        )
-
-        self.train_aug = AugmentationSequential(
-            K.Resize(self.img_size),
-            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-            # K.RandomResizedCrop(_to_tuple(self.patch_size), scale=(0.6, 1.0)),
-            K.RandomVerticalFlip(p=0.5),
-            K.RandomHorizontalFlip(p=0.5),
-            data_keys=["image", "mask"],
-            extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
-            },
-        )
-        self.test_aug = AugmentationSequential(
-            K.Resize(self.img_size),
-            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-            data_keys=["image", "mask"],
-            extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
-            },
-        )
-        self.valid_aug = AugmentationSequential(
-            K.Resize(self.img_size),
-            K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-            data_keys=["image", "mask"],
-            extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
-            },
-        )
-
-    def setup(self, stage: str) -> None:
-        """Set up datasets and samplers for training, validation, testing, or prediction.
-
-        Args:
-            stage (str): One of 'fit', 'validate', 'test', or 'predict'.
-        """
-        self.dataset = GarrulusSegmentationDataset(
-            self.raster_image_path,
-            self.mask_path,
-            transforms=self.train_aug,
-            **self.kwargs, 
-        )
-
-        ps = PolygonSplitter(self.grid_shape_path, self.fenced_area_shape_path)
-
-        train_indices, validation_indices, test_indices = get_field_D_grid_split()
-        train_polygon = ps.get_polygon_by_indices(grid_indices=train_indices)
-        validation_polygon = ps.get_polygon_by_indices(grid_indices=validation_indices)
-        test_polygon = ps.get_polygon_by_indices(grid_indices=test_indices)
-
-        if stage == "fit":
-            self.train_batch_sampler = RandomBatchAoiGeoSampler(
-                self.dataset,
-                size_lims=self.size_lims,
-                polygons=train_polygon,
-                batch_size=self.batch_size,
-                length=self.length,
-            )
-
-        # ToDo: use grid sample within AOI for validation and test
-        if stage in ["fit", "validate"]:
-            self.val_sampler = RandomBatchAoiGeoSampler(
-                self.dataset,
-                size_lims=self.size_lims,
-                polygons=validation_polygon,
-                batch_size=self.batch_size,
-                length=self.length,
-            )
-
-        # # ToDo: split prediction
-        if stage in ["test", "predict"]:
-            self.test_sampler = RandomBatchAoiGeoSampler(
-                self.dataset,
-                size_lims=self.size_lims,
-                polygons=test_polygon,
-                batch_size=self.batch_size,
-                length=self.length,
-            )
-
-            self.predict_dataset = self.test_dataset
-            self.predict_sampler = self.test_sampler
