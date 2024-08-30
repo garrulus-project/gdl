@@ -216,7 +216,12 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         """Verify that the dataset is valid by checking the checksums."""
         raise NotImplementedError
 
-    def plot(self, sample, show_titles=True, suptitle=None):
+    def plot(self, 
+             sample, 
+             show_mask=True,
+             show_prediction=True,
+             show_titles=True,
+             suptitle=None):
         """Plot a sample from the dataset.
 
         Args:
@@ -242,11 +247,12 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         # Stretch to the full range
         image = (image - image.min()) / (image.max() - image.min())
 
-        mask = sample["mask"].numpy().astype("uint8").squeeze()
+        if show_mask:
+            mask = sample["mask"].numpy().astype("uint8").squeeze()
 
-        num_panels = 2
-        showing_predictions = "prediction" in sample
-        if showing_predictions:
+        num_panels = 2 if show_mask else 1
+
+        if show_prediction and "prediction" in sample:
             predictions = sample["prediction"].numpy().astype("uint8").squeeze()
             num_panels += 1
 
@@ -254,38 +260,42 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         axs[0].imshow(image)
         axs[0].axis("off")
 
-        axs[1].imshow(mask, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
-        axs[1].axis("off")
+        if show_mask:
+            axs[1].imshow(mask, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
+            axs[1].axis("off")
 
         # Show legend
-        legend_elements = [
-            Patch(
-                facecolor=[
-                    self.cmap[i][0] / 255.0,
-                    self.cmap[i][1] / 255.0,
-                    self.cmap[i][2] / 255.0,
-                ],
-                edgecolor="none",
-                label=self.label_names[i],
+        if show_mask or show_prediction:
+            legend_elements = [
+                Patch(
+                    facecolor=[
+                        self.cmap[i][0] / 255.0,
+                        self.cmap[i][1] / 255.0,
+                        self.cmap[i][2] / 255.0,
+                    ],
+                    edgecolor="none",
+                    label=self.label_names[i],
+                )
+                for i in self.cmap
+            ]
+            axs[1].legend(
+                handles=legend_elements,
+                loc="upper center",
+                bbox_to_anchor=(0.5, -0.05),
+                ncol=2,
             )
-            for i in self.cmap
-        ]
-        axs[1].legend(
-            handles=legend_elements,
-            loc="upper center",
-            bbox_to_anchor=(0.5, -0.05),
-            ncol=2,
-        )
 
         if show_titles:
             axs[0].set_title("Image")
-            axs[1].set_title("Mask")
+            if show_mask:
+                axs[1].set_title("Mask")
 
-        if showing_predictions:
-            axs[2].imshow(predictions, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
-            axs[2].axis("off")
+        if show_prediction and "prediction" in sample:
+            panel_idx = num_panels - 1
+            axs[panel_idx].imshow(predictions, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
+            axs[panel_idx].axis("off")
             if show_titles:
-                axs[2].set_title("Predictions")
+                axs[panel_idx].set_title("Predictions")
 
         if suptitle is not None:
             plt.suptitle(suptitle)
