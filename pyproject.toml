@@ -31,6 +31,14 @@ classifiers = [
 ]
 dependencies = [
     "torchgeo[all]==0.5.2",
+    "geopandas==1.0.1",
+    "triangle==20230923",
+    "termcolor>=1.1",
+    "jsonpatch",
+    "flatbuffers",
+    "tensorboard",
+    "protobuf",
+    "websocket-client"
 ]
 dynamic = ["version"]
 
