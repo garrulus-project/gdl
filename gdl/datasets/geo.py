@@ -51,7 +51,7 @@ class GarrulusMask(RasterDataset, abc.ABC):
     """
 
     # filename_glob = 'd-RGB-9mm-reference-mask.tif'
-    filename_regex = r"d-RGB-9mm-reference-mask.tif"
+    filename_regex = r"d-RGB-9mm-reference_mask.tif"
     is_image = False
     separate_files = False
 
