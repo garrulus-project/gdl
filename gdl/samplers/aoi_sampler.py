@@ -4,8 +4,10 @@ import geopandas as gpd
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+from rasterio.plot import show
 from shapely.geometry import LinearRing, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
+
 
 
 class AoiSampler:
@@ -263,7 +265,8 @@ class AoiSampler:
         fig, ax = plt.subplots()
     
         if image is not None:
-            show(image, transform=raster_transform, ax=ax, cmap='gray')
+            with rasterio.open(image) as src:
+                show(src, ax=ax)
         
         for polygon in polygons:
             x, y = polygon.exterior.xy
