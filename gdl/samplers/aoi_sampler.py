@@ -4,6 +4,8 @@ import geopandas as gpd
 import numpy as np
 import torch
 from matplotlib import pyplot as plt
+import rasterio
+from rasterio.plot import show
 from shapely.geometry import LinearRing, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
 
@@ -74,6 +76,44 @@ class AoiSampler:
         s[mask] = 1 - s[mask]
         loc = origin + (r * vec_AB + s * vec_AC)
         return loc
+
+    def sample_grid(self, window_size_scaled: int, overlap: float = 0.0, polygon_intersection: float = 0.5) -> list[Polygon]:
+        """Sample windows in a grid pattern covering the entire polygon region.
+        
+        Works by traversing the grid with a stride length of `window_size_scaled * (1 - overlap)`
+        and sampling only windows that have at least `polygon_intersection` percentage of overlap with the given polygons.
+        
+        Args:
+            window_size_scaled: Size of each window (assumed square) - scaled by the the raster resolution
+            overlap: Overlap between adjacent windows (0.0 to 1.0)
+            polygon_intersection: Minimum intersection percentage with the given polygons. (e.g. training areas/polygons)
+            
+        Returns:
+            List of window polygons
+        """
+        # Get bounds of all polygons
+        bounds = unary_union(self.polygons).bounds
+        minx, miny, maxx, maxy = bounds
+        
+        # Calculate step size based on overlap
+        step = window_size_scaled * (1 - overlap)
+        
+        windows = []
+        y = miny
+        while y < maxy:
+            x = minx
+            while x < maxx:
+                window = box(x, y, x + window_size_scaled, y + window_size_scaled)
+                # Only keep windows that have at least 50% intersection with polygons
+                window_area = window.area
+                for polygon in self.polygons:
+                    if window.intersection(polygon).area / window_area >= polygon_intersection:
+                        windows.append(window)
+                        break
+                x += step
+            y += step
+            
+        return windows
 
     def triangulate_polygon(self, polygon: Polygon) -> dict:
         """Triangulate polygon.
@@ -263,7 +303,8 @@ class AoiSampler:
         fig, ax = plt.subplots()
     
         if image is not None:
-            show(image, transform=raster_transform, ax=ax, cmap='gray')
+            with rasterio.open(image) as src:
+                show(src, ax=ax)
         
         for polygon in polygons:
             x, y = polygon.exterior.xy
