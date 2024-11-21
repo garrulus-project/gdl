@@ -100,14 +100,19 @@ class RandomAoiGeoSampler(GeoSampler):
         self.size_lims = _to_tuple(size_lims)
 
         if units == Units.PIXELS:
-            self.size_lims = (self.size_lims[0] * self.res, self.size_lims[1] * self.res)
+            self.size_lims = (
+                self.size_lims[0] * self.res,
+                self.size_lims[1] * self.res,
+            )
 
         # create shapey box for the dataset roi
         if outer_boundary_shape is not None:
             outer_boundary_shape = gpd.read_file(outer_boundary_shape)
             self.outer_shape = outer_boundary_shape.geometry.union_all()
         else:
-            self.outer_shape = box(self.roi.minx, self.roi.miny, self.roi.maxx, self.roi.maxy)
+            self.outer_shape = box(
+                self.roi.minx, self.roi.miny, self.roi.maxx, self.roi.maxy
+            )
 
         # make sure that both aoi_sampler and multi_polygons are within the roi_box
         self.aoi_sampler = AoiSampler(polygons, self.outer_shape)
@@ -170,3 +175,78 @@ class RandomAoiGeoSampler(GeoSampler):
             return self.sample_window(intersection_percentage_th)
         else:
             return window
+
+
+class GridAoiSampler(RandomAoiGeoSampler):
+    """Samples elements from a region of interest in a grid fashion.
+
+    This is particularly useful during evaluation when you want to return
+    the same grids across different experiments. This sampler will also
+    take the outer boundary or shape of the raster image into consideration
+    when sampling windows, meaning that no pixel area outsied given polygons
+    will not be sampled.
+    """
+
+    def __init__(
+        self,
+        dataset: GeoDataset,
+        size: int,
+        polygons: list[Polygon],
+        polygon_intersection: float = 0.9,
+        window_overlap: float = 0.0,
+        roi: BoundingBox | None = None,
+        units: Units = Units.PIXELS,
+        outer_boundary_shape: str | None = None,
+    ) -> None:
+        """Initialize a new Sampler instance.
+
+        Args:
+            dataset: dataset to index from
+            size: size of the grid to sample windows assuming the window is square
+            polygons: list of polygons in which the windows will be sampled from
+            polygon_intersection: minimum intersection area with the polygons. This
+                allows sampling windows with the minimum intersection with polygons,
+                otherwise discard windows.
+            window_overlap: allowed window overlap, the larger the bigger the overlap
+                between windows.
+            roi: region of interest to sample from (minx, maxx, miny, maxy, mint, maxt)
+                (defaults to the bounds of ``dataset.index``)
+            units: defines if ``size`` is in pixel or CRS units
+            exclude_nodata_samples: will ensure that samples are not outside of the
+                footprint of the valid pixel. No-data regions may occur due to
+                re-projection or inherit no-data regions in rasters.
+            outer_boundary_shape: path to the shapefile that defines the outer boundary of the field
+                e.g. fenced area shape
+        """
+        super().__init__(
+            dataset=dataset,
+            size_lims=(size, size),
+            polygons=polygons,
+            length=None,
+            roi=roi,
+            units=units,
+            outer_boundary_shape=outer_boundary_shape,
+        )
+
+        self.scaled_size = size * self.res
+        self.polygon_intersection = polygon_intersection
+        self.window_overlap = window_overlap
+        # sample window
+        self.sampled_grid_windows = self.aoi_sampler.sample_grid(
+            window_size_scaled=self.scaled_size,
+            overlap=self.window_overlap,
+            polygon_intersection=self.polygon_intersection,
+        )
+        # set maximum length
+        self.length = len(self.sampled_grid_windows)
+
+    def __iter__(self) -> Iterator[BoundingBox]:
+        """Return the index of a dataset.
+
+        Returns:
+            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+        """
+        for window in self.sampled_grid_windows:
+            min_x, min_y, max_x, max_y = window.bounds
+            bbox = BoundingBox(min_x, max_x, min_y, max_y, self.roi.mint, self.roi.maxt)
+            yield bbox
