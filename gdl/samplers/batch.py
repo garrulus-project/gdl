@@ -27,7 +27,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         polygons: list[Polygon],
         length: int | None,
         batch_size: int,
-        intersection_percentage_th: float = 75.0,
+        polygon_intersection: float = 75.0,
         roi: BoundingBox | None = None,
         units: Units = Units.PIXELS,
         max_retries: int = 50000,
@@ -44,7 +44,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
                 :term:`chips <chip>` of size ``size`` that could be sampled from
                 the dataset)
             batch_size: number of batch size
-            intersection_percentage_th: percentage of the intersection of sampled windows
+            polygon_intersection: percentage of the intersection of sampled windows
                 with the union of polygons. Set the percentage to 100 if you want to
                 sample windows from the polygons only. The higher percentage may take
                 longer to find random windows within the polygons.
@@ -83,7 +83,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         elif isinstance(self.multi_polygons, MultiPolygon):
             self.multi_polygons = list(self.multi_polygons.geoms)
 
-        self.intersection_percentage_th = intersection_percentage_th
+        self.polygon_intersection = polygon_intersection
         self.length = length
         self.batch_size = batch_size
 
@@ -93,7 +93,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         self.bboxes = []
         for _ in range(self.length):
             window = self.aoi_sampler.sample_window(
-                intersection_percentage_th=self.intersection_percentage_th
+                polygon_intersection=self.polygon_intersection
             )
             bbox = BoundingBox(
                 window.bounds[0],
