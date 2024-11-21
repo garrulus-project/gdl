@@ -72,6 +72,7 @@ class RandomAoiGeoSampler(GeoSampler):
         units: Units = Units.PIXELS,
         max_retries: int = 50000,
         outer_boundary_shape: str | None = None,
+        polygon_intersection: float = 0.9,
     ) -> None:
         """Initialize a new Sampler instance.
 
@@ -94,6 +95,7 @@ class RandomAoiGeoSampler(GeoSampler):
                 (ToDo)
             outer_boundary_shape: path to the shapefile that defines the outer boundary of the field
                 e.g. fenced area shape
+            polygon_intersection: minimum intersection area with the polygons.
         """
         super().__init__(dataset, roi)
 
@@ -123,6 +125,7 @@ class RandomAoiGeoSampler(GeoSampler):
             self.multi_polygons = list(self.multi_polygons.geoms)
 
         self.length = length
+        self.polygon_intersection = polygon_intersection
 
     def __iter__(self) -> Iterator[BoundingBox]:
         """Return the index of a dataset.
@@ -131,7 +134,7 @@ class RandomAoiGeoSampler(GeoSampler):
             (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
         """
         for _ in range(len(self)):
-            window = self.sample_window(intersection_percentage_th=90)
+            window = self.sample_window(polygon_intersection=self.polygon_intersection)
             min_x, min_y, max_x, max_y = window.bounds
             bbox = BoundingBox(min_x, max_x, min_y, max_y, self.roi.mint, self.roi.maxt)
             yield bbox
@@ -159,8 +162,8 @@ class RandomAoiGeoSampler(GeoSampler):
         x, y = int(x.item()), int(y.item())
         return x, y
 
-    def sample_window(self, intersection_percentage_th=0.0):
-        """Randomly sample a window that satisfies the intersection_percentage_th, that is
+    def sample_window(self, polygon_intersection=0.0):
+        """Randomly sample a window that satisfies the polygon_intersection, that is
         minimum intersection percentage with the given polygons.
         """
         h, w = self.sample_window_size()
@@ -169,10 +172,10 @@ class RandomAoiGeoSampler(GeoSampler):
         intersection_area = sum(
             window.intersection(polygon).area for polygon in self.multi_polygons
         )
-        intersection_percentage = (intersection_area / window.area) * 100
+        intersection_percentage = (intersection_area / window.area)
 
-        if intersection_percentage <= intersection_percentage_th:
-            return self.sample_window(intersection_percentage_th)
+        if intersection_percentage <= polygon_intersection:
+            return self.sample_window(polygon_intersection)
         else:
             return window
 
