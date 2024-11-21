@@ -45,8 +45,8 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
                 the dataset)
             batch_size: number of batch size
             intersection_percentage_th: percentage of the intersection of sampled windows
-                with the union of polygons. Set the percentage to 100 if you want to 
-                sample windows from the polygons only. The higher percentage may take 
+                with the union of polygons. Set the percentage to 100 if you want to
+                sample windows from the polygons only. The higher percentage may take
                 longer to find random windows within the polygons.
             roi: region of interest to sample from (minx, maxx, miny, maxy, mint, maxt)
                 (defaults to the bounds of ``dataset.index``)
@@ -61,14 +61,19 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         self.size_lims = _to_tuple(size_lims)
 
         if units == Units.PIXELS:
-            self.size_lims = (self.size_lims[0] * self.res, self.size_lims[1] * self.res)
+            self.size_lims = (
+                self.size_lims[0] * self.res,
+                self.size_lims[1] * self.res,
+            )
 
         # get the intersection of the polygons with the outer boundary shape
         if outer_boundary_shape is not None:
             outer_boundary_shape = gpd.read_file(outer_boundary_shape)
             self.outer_shape = outer_boundary_shape.geometry.union_all()
         else:
-            self.outer_shape = box(self.roi.minx, self.roi.miny, self.roi.maxx, self.roi.maxy)
+            self.outer_shape = box(
+                self.roi.minx, self.roi.miny, self.roi.maxx, self.roi.maxy
+            )
 
         # make sure that both aoi_sampler and multi_polygons are within the roi_box
         self.aoi_sampler = AoiSampler(polygons, self.outer_shape, self.size_lims)
@@ -87,10 +92,17 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         areas = []
         self.bboxes = []
         for _ in range(self.length):
-            window = self.aoi_sampler.sample_window(intersection_percentage_th=self.intersection_percentage_th)
-            bbox = BoundingBox(window.bounds[0],window.bounds[2],
-                               window.bounds[1], window.bounds[3], 
-                               self.roi.mint, self.roi.maxt)
+            window = self.aoi_sampler.sample_window(
+                intersection_percentage_th=self.intersection_percentage_th
+            )
+            bbox = BoundingBox(
+                window.bounds[0],
+                window.bounds[2],
+                window.bounds[1],
+                window.bounds[3],
+                self.roi.mint,
+                self.roi.maxt,
+            )
             self.bboxes.append(bbox)
             areas.append(bbox.area)
 

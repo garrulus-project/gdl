@@ -22,7 +22,9 @@ class AoiSampler:
     https://github.com/azavea/raster-vision/blob/master/rastervision_core/rastervision/core/data/utils/aoi_sampler.py
     """
 
-    def __init__(self, polygons: Sequence[Polygon], roi_box=None, size_lims=(128,258)) -> None:
+    def __init__(
+        self, polygons: Sequence[Polygon], roi_box=None, size_lims=(128, 258)
+    ) -> None:
         """Args:
         polygons: List of shapely Polygon object.
         roi: Region of interest. Defaults to None.
@@ -77,27 +79,32 @@ class AoiSampler:
         loc = origin + (r * vec_AB + s * vec_AC)
         return loc
 
-    def sample_grid(self, window_size_scaled: int, overlap: float = 0.0, polygon_intersection: float = 0.5) -> list[Polygon]:
+    def sample_grid(
+        self,
+        window_size_scaled: int,
+        overlap: float = 0.0,
+        polygon_intersection: float = 0.5,
+    ) -> list[Polygon]:
         """Sample windows in a grid pattern covering the entire polygon region.
-        
+
         Works by traversing the grid with a stride length of `window_size_scaled * (1 - overlap)`
         and sampling only windows that have at least `polygon_intersection` percentage of overlap with the given polygons.
-        
+
         Args:
             window_size_scaled: Size of each window (assumed square) - scaled by the the raster resolution
             overlap: Overlap between adjacent windows (0.0 to 1.0)
             polygon_intersection: Minimum intersection percentage with the given polygons. (e.g. training areas/polygons)
-            
+
         Returns:
             List of window polygons
         """
         # Get bounds of all polygons
         bounds = unary_union(self.polygons).bounds
         minx, miny, maxx, maxy = bounds
-        
+
         # Calculate step size based on overlap
         step = window_size_scaled * (1 - overlap)
-        
+
         windows = []
         y = miny
         while y < maxy:
@@ -107,12 +114,15 @@ class AoiSampler:
                 # Only keep windows that have at least 50% intersection with polygons
                 window_area = window.area
                 for polygon in self.polygons:
-                    if window.intersection(polygon).area / window_area >= polygon_intersection:
+                    if (
+                        window.intersection(polygon).area / window_area
+                        >= polygon_intersection
+                    ):
                         windows.append(window)
                         break
                 x += step
             y += step
-            
+
         return windows
 
     def triangulate_polygon(self, polygon: Polygon) -> dict:
@@ -267,7 +277,7 @@ class AoiSampler:
         x, y = int(x.item()), int(y.item())
         return x, y
 
-    def sample_window(self, intersection_percentage_th: int =0.0):
+    def sample_window(self, intersection_percentage_th: int = 0.0):
         """Randomly sample a window that satisfies the intersection_percentage_th, that is
         minimum intersection percentage with the given polygons.
         """
@@ -284,41 +294,46 @@ class AoiSampler:
         else:
             return window
 
-    def show_windows(self, polygons, 
-                 windows, 
-                 image=None, 
-                 boundary_shape=None, 
-                 raster_transform=None, 
-                 title='Sampled Windows') -> None:
+    def show_windows(
+        self,
+        polygons,
+        windows,
+        image=None,
+        boundary_shape=None,
+        raster_transform=None,
+        title="Sampled Windows",
+    ) -> None:
         """Visualize generated windows along with the raster image and fenced area if given
         Args:
             polygons: a list of grids in polygons
             windows: windows to visualize
             image: raster image
-            boundary_shape: boundary of the raster image (fenced area), it should be 
+            boundary_shape: boundary of the raster image (fenced area), it should be
                 polygon type
             raster_transform: raster transform
             title: title of the plot.
         """
         fig, ax = plt.subplots()
-    
+
         if image is not None:
             with rasterio.open(image) as src:
                 show(src, ax=ax)
-        
+
         for polygon in polygons:
             x, y = polygon.exterior.xy
-            ax.fill(x, y, alpha=0.5, fc='gray', edgecolor='black')
-    
+            ax.fill(x, y, alpha=0.5, fc="gray", edgecolor="black")
+
         # draw windows on top of the image
         for w in windows:
             x, y = w.exterior.xy
-            ax.plot(x, y, color='red')
-    
+            ax.plot(x, y, color="red")
+
         # plot boudary shape (fenced_area)
         if boundary_shape:
-            gpd.GeoSeries(boundary_shape).boundary.plot(ax=ax, color='green', linewidth=2)
-    
+            gpd.GeoSeries(boundary_shape).boundary.plot(
+                ax=ax, color="green", linewidth=2
+            )
+
         ax.autoscale()
         ax.set_title(title)
         plt.show()
