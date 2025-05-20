@@ -27,7 +27,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         polygons: list[Polygon],
         length: int | None,
         batch_size: int,
-        polygon_intersection: float = 75.0,
+        polygon_intersection: float = 0.75,
         roi: BoundingBox | None = None,
         units: Units = Units.PIXELS,
         max_retries: int = 50000,
