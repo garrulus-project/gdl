@@ -34,6 +34,7 @@ dependencies = [
     "geopandas==1.0.1",
     "triangle==20230923",
     "termcolor>=1.1",
+    "rasterio==1.4.2"
     "jsonpatch",
     "flatbuffers",
     "tensorboard",
