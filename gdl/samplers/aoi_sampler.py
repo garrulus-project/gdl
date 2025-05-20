@@ -277,8 +277,8 @@ class AoiSampler:
         x, y = int(x.item()), int(y.item())
         return x, y
 
-    def sample_window(self, intersection_percentage_th: int = 0.0):
-        """Randomly sample a window that satisfies the intersection_percentage_th, that is
+    def sample_window(self, polygon_intersection: int = 0.0):
+        """Randomly sample a window that satisfies the polygon_intersection (0-1), that is
         minimum intersection percentage with the given polygons.
         """
         h, w = self.sample_window_size()
@@ -287,10 +287,10 @@ class AoiSampler:
         intersection_area = sum(
             window.intersection(polygon).area for polygon in self.polygons
         )
-        intersection_percentage = (intersection_area / window.area) * 100
+        intersection_percentage = (intersection_area / window.area)
 
-        if intersection_percentage <= intersection_percentage_th:
-            return self.sample_window(intersection_percentage_th)
+        if intersection_percentage <= polygon_intersection:
+            return self.sample_window(polygon_intersection)
         else:
             return window
 
@@ -337,3 +337,5 @@ class AoiSampler:
         ax.autoscale()
         ax.set_title(title)
         plt.show()
+
+        return fig
