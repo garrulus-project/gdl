@@ -7,7 +7,7 @@ The backend of `gdl` is based on PyTorch and [torchgeo](https://github.com/micro
 ## Installation
 
 ```
-pip install git+https://git.inf.h-brs.de/garrulus/dfm/gdl@main
+pip install git+https://github.com/garrulus-project/gdl.git
 ```
 
 ## Features and example usage
