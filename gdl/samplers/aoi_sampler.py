@@ -287,7 +287,7 @@ class AoiSampler:
         intersection_area = sum(
             window.intersection(polygon).area for polygon in self.polygons
         )
-        intersection_percentage = (intersection_area / window.area)
+        intersection_percentage = intersection_area / window.area
 
         if intersection_percentage <= polygon_intersection:
             return self.sample_window(polygon_intersection)
