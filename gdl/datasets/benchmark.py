@@ -1,5 +1,6 @@
 # Benchmark dataset configuration for different fields across different scenarios
 
+
 def get_field_D_grid_split():
     """Get the split indices of the grid cells within field D.
     ToDo: move this function to benchmark.py.
@@ -8,7 +9,6 @@ def get_field_D_grid_split():
         list: List of grid cell indices.
     """
     test_indices = [54, 50, 39, 37, 25]
-    validation_indices = [23, 34, 36, 48, 62]
     train_indices = [
         3,
         9,
@@ -18,6 +18,7 @@ def get_field_D_grid_split():
         17,
         18,
         19,
+        23,
         24,
         26,
         27,
@@ -26,6 +27,8 @@ def get_field_D_grid_split():
         31,
         32,
         33,
+        34,
+        36,
         38,
         40,
         41,
@@ -34,6 +37,7 @@ def get_field_D_grid_split():
         45,
         46,
         47,
+        48,
         51,
         52,
         53,
@@ -43,5 +47,6 @@ def get_field_D_grid_split():
         59,
         60,
         61,
+        62,
     ]
-    return train_indices, validation_indices, test_indices
+    return train_indices, test_indices
