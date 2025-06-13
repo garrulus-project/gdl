@@ -1,5 +1,5 @@
 from collections.abc import Iterator
-
+import math
 import torch
 from shapely.geometry import MultiPolygon, Polygon, box
 from torchgeo.datasets import BoundingBox, GeoDataset
@@ -88,7 +88,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         self.batch_size = batch_size
 
         # create random samplers, this is only generated once and will be used
-        # across all the epochs
+        # across all the epochs, todo: create function to update this for new epoch?
         areas = []
         self.bboxes = []
         for _ in range(self.length):
@@ -129,3 +129,108 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
             length of the epoch
         """
         return self.length // self.batch_size
+
+
+class GridBatchAoiGeoSampler(BatchGeoSampler):
+    """Sample windows in grid fashion for consistent sampling.
+    This can be used to sample val and test orthomosaics
+    """
+
+    def __init__(
+        self,
+        dataset: GeoDataset,
+        size: int,
+        polygons: list[Polygon],
+        batch_size: int,
+        polygon_intersection: float = 0.5,
+        window_overlap: float = 0.25,
+        roi: BoundingBox | None = None,
+        units: Units = Units.PIXELS,
+        outer_boundary_shape: str | None = None,
+    ) -> None:
+        """Initialize a new Sampler instance.
+
+        Args:
+            dataset: dataset to index from
+            size: size in pixel
+            polygons: list of polygons in which the windows will be sampled from
+            batch_size: number of batch size
+            polygon_intersection: percentage of the intersection of sampled windows
+                with the union of polygons. Set the percentage to 100 if you want to
+                sample windows from the polygons only. The higher percentage may take
+                longer to find random windows within the polygons.
+            window_overlap: window overlap with neighbouring windows
+            roi: region of interest to sample from (minx, maxx, miny, maxy, mint, maxt)
+                (defaults to the bounds of ``dataset.index``)
+            units: defines if ``size_limit`` is in pixel or CRS units
+            outer_boundary_shape: path to the shapefile that defines the outer boundary of the field
+                e.g. fenced area shape
+        """
+        super().__init__(dataset, roi)
+
+        if units == Units.PIXELS:
+            self.size_lims = (
+                size * self.res,
+                size * self.res,
+            )
+
+        # get the intersection of the polygons with the outer boundary shape
+        if outer_boundary_shape is not None:
+            outer_boundary_shape = gpd.read_file(outer_boundary_shape)
+            self.outer_shape = outer_boundary_shape.geometry.union_all()
+        else:
+            self.outer_shape = box(
+                self.roi.minx, self.roi.miny, self.roi.maxx, self.roi.maxy
+            )
+
+        # make sure that both aoi_sampler and multi_polygons are within the roi_box
+        self.aoi_sampler = AoiSampler(polygons, self.outer_shape)
+        self.multi_polygons = MultiPolygon(polygons).intersection(self.outer_shape)
+        if isinstance(self.multi_polygons, Polygon):
+            self.multi_polygons = [self.multi_polygons]
+        elif isinstance(self.multi_polygons, MultiPolygon):
+            self.multi_polygons = list(self.multi_polygons.geoms)
+
+        self.batch_size = batch_size
+        self.scaled_size = size * self.res
+        self.polygon_intersection = polygon_intersection
+        self.window_overlap = window_overlap
+        # sample window
+        self.sampled_grid_windows = self.aoi_sampler.sample_grid(
+            window_size_scaled=self.scaled_size,
+            overlap=self.window_overlap,
+            polygon_intersection=self.polygon_intersection,
+        )
+        # set maximum length
+        self.length = len(self.sampled_grid_windows)
+
+        # create random samplers, this is only generated once and will be used
+        # across all the epochs
+        self.bboxes = []
+        for window in self.sampled_grid_windows:
+            bbox = BoundingBox(
+                window.bounds[0],
+                window.bounds[2],
+                window.bounds[1],
+                window.bounds[3],
+                self.roi.mint,
+                self.roi.maxt,
+            )
+            self.bboxes.append(bbox)
+
+    def __iter__(self) -> Iterator[BoundingBox]:
+        """Return the index of a dataset.
+
+        Returns:
+            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+        """
+        # Iterate sequentially in the grid order.
+        for i in range(0, len(self.bboxes), self.batch_size):
+            yield self.bboxes[i : i + self.batch_size]
+
+    def __len__(self) -> int:
+        """Return the number of samples in a single epoch.
+        Returns:
+            length of the epoch
+        """
+        return math.ceil(self.length / self.batch_size)
