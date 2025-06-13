@@ -14,7 +14,7 @@ from torchgeo.transforms import AugmentationSequential
 from ..datasets.benchmark import get_field_D_grid_split
 from ..datasets.geo import GarrulusSegmentationDataset
 from ..datasets.polygon import PolygonSplitter
-from ..samplers.batch import RandomBatchAoiGeoSampler
+from ..samplers.batch import RandomBatchAoiGeoSampler, GridBatchAoiGeoSampler
 
 
 class GarrulusAoiDataModule(GeoDataModule):
@@ -32,13 +32,15 @@ class GarrulusAoiDataModule(GeoDataModule):
         grid_shape_path: str | None = None,
         fenced_area_shape_path: str | None = None,
         batch_size: int = 64,
-        size_lims: tuple[float, float] = (128,256),
+        size_lims: tuple[float, float] = (128, 256),
         img_size: int = 224,
         length: int = 1000,
         num_workers: int = 1,
         class_set: int = 5,
         use_prior_labels: bool = False,
         prior_smoothing_constant: float = 1e-4,
+        polygon_intersection: float = 0.5,
+        window_overlap: float = 0.25,
         **kwargs: Any,
     ) -> None:
         """Initialize a new GarrulusAoiDataModule instance.
@@ -57,6 +59,11 @@ class GarrulusAoiDataModule(GeoDataModule):
             use_prior_labels (bool): Whether to use a prior over high-resolution
                                      classes instead of the labels themselves.
             prior_smoothing_constant (float): Smoothing constant added when using prior labels.
+            polygon_intersection (float): [for val/test] percentage of the intersection of sampled windows
+                with the union of polygons. Set the percentage to 100 if you want to
+                sample windows from the polygons only. The higher percentage may take
+                longer to find random windows within the polygons.
+            window_overlap: [for val/test] window overlap with neighbouring windows
             **kwargs (Any): Additional keyword arguments passed to the base class.
         """
         self.raster_image_path = raster_image_path
@@ -68,6 +75,8 @@ class GarrulusAoiDataModule(GeoDataModule):
         self.img_size = img_size
         self.size_lims = size_lims
         self.length = length
+        self.polygon_intersection = polygon_intersection
+        self.window_overlap = window_overlap
 
         super().__init__(
             GarrulusSegmentationDataset,
@@ -115,14 +124,13 @@ class GarrulusAoiDataModule(GeoDataModule):
             self.raster_image_path,
             self.mask_path,
             transforms=self.train_aug,
-            **self.kwargs, 
+            **self.kwargs,
         )
 
         ps = PolygonSplitter(self.grid_shape_path, self.fenced_area_shape_path)
 
-        train_indices, validation_indices, test_indices = get_field_D_grid_split()
+        train_indices, test_indices = get_field_D_grid_split()
         train_polygon = ps.get_polygon_by_indices(grid_indices=train_indices)
-        validation_polygon = ps.get_polygon_by_indices(grid_indices=validation_indices)
         test_polygon = ps.get_polygon_by_indices(grid_indices=test_indices)
 
         if stage == "fit":
@@ -134,29 +142,25 @@ class GarrulusAoiDataModule(GeoDataModule):
                 length=self.length,
             )
 
-        # ToDo: use grid sample within AOI for validation and test
         if stage in ["fit", "validate"]:
-            self.val_sampler = RandomBatchAoiGeoSampler(
+            self.val_sampler = GridBatchAoiGeoSampler(
                 self.dataset,
-                size_lims=self.size_lims,
-                polygons=validation_polygon,
-                batch_size=self.batch_size,
-                length=self.length,
-            )
-
-        # # ToDo: split prediction
-        if stage in ["test", "predict"]:
-            self.test_sampler = RandomBatchAoiGeoSampler(
-                self.dataset,
-                size_lims=self.size_lims,
+                size=self.img_size,
                 polygons=test_polygon,
                 batch_size=self.batch_size,
-                length=self.length,
+                polygon_intersection=self.polygon_intersection,
+                window_overlap=self.window_overlap,
             )
 
-            self.predict_dataset = self.test_dataset
-            self.predict_sampler = self.test_sampler
-
+        if stage in ["test", "predict"]:
+            self.test_sampler = GridBatchAoiGeoSampler(
+                self.dataset,
+                size=self.img_size,
+                polygons=test_polygon,
+                batch_size=self.batch_size,
+                polygon_intersection=self.polygon_intersection,
+                window_overlap=self.window_overlap,
+            )
 
 
 class GarrulusGridDataModule(GeoDataModule):
@@ -272,9 +276,9 @@ class GarrulusGridDataModule(GeoDataModule):
         Args:
             stage (str): One of 'fit', 'validate', 'test', or 'predict'.
         """
-        dataset = GarrulusSegmentationDataset(self.raster_image_path, 
-                                              self.mask_path,
-                                              **self.kwargs)
+        dataset = GarrulusSegmentationDataset(
+            self.raster_image_path, self.mask_path, **self.kwargs
+        )
         (
             self.train_dataset,
             self.val_dataset,
@@ -393,5 +397,3 @@ class GarrulusGridDataModule(GeoDataModule):
     #             batch['mask'][batch['mask'] == 1] = 3
 
     #     return super().on_after_batch_transfer(batch, dataloader_idx)
-
-
