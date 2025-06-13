@@ -72,7 +72,7 @@ class RandomAoiGeoSampler(GeoSampler):
         units: Units = Units.PIXELS,
         max_retries: int = 50000,
         outer_boundary_shape: str | None = None,
-        polygon_intersection: float = 0.9,
+        polygon_intersection: float = 0.75,
     ) -> None:
         """Initialize a new Sampler instance.
 
@@ -172,7 +172,7 @@ class RandomAoiGeoSampler(GeoSampler):
         intersection_area = sum(
             window.intersection(polygon).area for polygon in self.multi_polygons
         )
-        intersection_percentage = (intersection_area / window.area)
+        intersection_percentage = intersection_area / window.area
 
         if intersection_percentage <= polygon_intersection:
             return self.sample_window(polygon_intersection)
