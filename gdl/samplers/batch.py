@@ -1,5 +1,6 @@
-from collections.abc import Iterator
 import math
+from collections.abc import Iterator
+
 import torch
 from shapely.geometry import MultiPolygon, Polygon, box
 from torchgeo.datasets import BoundingBox, GeoDataset
@@ -133,7 +134,7 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
 
 class GridBatchAoiGeoSampler(BatchGeoSampler):
     """Sample windows in grid fashion for consistent sampling.
-    This can be used to sample val and test orthomosaics
+    This can be used to sample val and test orthomosaics.
     """
 
     def __init__(
@@ -169,10 +170,7 @@ class GridBatchAoiGeoSampler(BatchGeoSampler):
         super().__init__(dataset, roi)
 
         if units == Units.PIXELS:
-            self.size_lims = (
-                size * self.res,
-                size * self.res,
-            )
+            self.size_lims = (size * self.res, size * self.res)
 
         # get the intersection of the polygons with the outer boundary shape
         if outer_boundary_shape is not None:
@@ -230,7 +228,87 @@ class GridBatchAoiGeoSampler(BatchGeoSampler):
 
     def __len__(self) -> int:
         """Return the number of samples in a single epoch.
+
         Returns:
-            length of the epoch
+            length of the epoch.
         """
         return math.ceil(self.length / self.batch_size)
+
+
+class DistributedRandomBatchAoiGeoSampler(RandomBatchAoiGeoSampler):
+    def __init__(
+        self,
+        dataset: GeoDataset,
+        size_lims: tuple[float, float],
+        polygons: list[Polygon],
+        length: int | None,
+        batch_size: int,
+        polygon_intersection: float = 0.75,
+        roi: BoundingBox | None = None,
+        units: Units = Units.PIXELS,
+        max_retries: int = 50000,
+        outer_boundary_shape: str | None = None,
+        num_replicas: int | None = None,
+        rank: int | None = None,
+        shuffle: bool = True,
+        seed: int = 0,
+    ) -> None:
+        super().__init__(
+            dataset,
+            size_lims,
+            polygons,
+            length,
+            batch_size,
+            polygon_intersection,
+            roi,
+            units,
+            max_retries,
+            outer_boundary_shape,
+        )
+
+        if num_replicas is None or rank is None:
+            if not dist.is_available() or not dist.is_initialized():
+                raise RuntimeError('Distributed training not initialized')
+
+        self.num_replicas = (
+            num_replicas
+            if num_replicas is not None
+            else torch.distributed.get_world_size()
+        )
+        self.rank = rank if rank is not None else torch.distributed.get_rank()
+
+        self.num_replicas = num_replicas
+        self.rank = rank
+        self.shuffle = shuffle
+        self.seed = seed
+        self.epoch = 0
+
+        self.total_size = math.ceil(self.length / self.num_replicas) * self.num_replicas
+        self.samples_per_replica = self.total_size // self.num_replicas
+
+    def set_epoch(self, epoch: int) -> None:
+        self.epoch = epoch
+
+    def __iter__(self) -> Iterator[BoundingBox]:
+        g = torch.Generator()
+        print(f'seed: {self.seed} epoch {self.epoch}')
+        g.manual_seed(self.seed + self.epoch)
+
+        indices = list(range(len(self.bboxes)))
+        if self.shuffle:
+            indices = torch.tensor(indices)[
+                torch.randperm(len(indices), generator=g)
+            ].tolist()
+
+        # pad to make divisible
+        required = self.samples_per_replica * self.num_replicas
+        indices += indices[: (required - len(indices))]
+
+        # shard or partition data
+        indices = indices[self.rank :: self.num_replicas]
+
+        for i in range(0, len(indices), self.batch_size):
+            yield [self.bboxes[j] for j in indices[i : i + self.batch_size]]
+
+    def __len__(self) -> int:
+        return self.samples_per_replica
