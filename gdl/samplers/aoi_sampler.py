@@ -2,9 +2,9 @@ from collections.abc import Sequence
 
 import geopandas as gpd
 import numpy as np
+import rasterio
 import torch
 from matplotlib import pyplot as plt
-import rasterio
 from rasterio.plot import show
 from shapely.geometry import LinearRing, MultiPolygon, Polygon, box
 from shapely.ops import unary_union
@@ -45,10 +45,10 @@ class AoiSampler:
     def triangulate(self, polygons) -> dict:
         triangulations = [self.triangulate_polygon(p) for p in polygons]
         self.triangulations = triangulations
-        self.origins = np.vstack([t["origins"] for t in triangulations])
-        self.vec_AB = np.vstack([t["bases"][0] for t in triangulations])
-        self.vec_AC = np.vstack([t["bases"][1] for t in triangulations])
-        areas = np.concatenate([t["areas"] for t in triangulations])
+        self.origins = np.vstack([t['origins'] for t in triangulations])
+        self.vec_AB = np.vstack([t['bases'][0] for t in triangulations])
+        self.vec_AC = np.vstack([t['bases'][1] for t in triangulations])
+        areas = np.concatenate([t['areas'] for t in triangulations])
         self.weights = areas / areas.sum()
         self.ntriangles = len(self.origins)
 
@@ -137,10 +137,7 @@ class AoiSampler:
 
         holes = polygon.interiors
         if not holes:
-            args = {
-                "vertices": vertices,
-                "segments": edges,
-            }
+            args = {'vertices': vertices, 'segments': edges}
         else:
             for hole in holes:
                 hole_vertices, hole_edges = self.polygon_to_graph(hole)
@@ -157,19 +154,19 @@ class AoiSampler:
                 [np.array(c.coords) for c in hole_centroids], axis=0
             )
 
-            args = {"vertices": vertices, "segments": edges, "holes": hole_centroids}
+            args = {'vertices': vertices, 'segments': edges, 'holes': hole_centroids}
 
-        tri = triangulate(args, opts="p")
-        simplices = tri["triangles"]
-        vertices = np.array(tri["vertices"])
+        tri = triangulate(args, opts='p')
+        simplices = tri['triangles']
+        vertices = np.array(tri['vertices'])
         origins, bases = self.triangle_origin_and_basis(vertices, simplices)
 
         out = {
-            "vertices": vertices,
-            "simplices": simplices,
-            "origins": origins,
-            "bases": bases,
-            "areas": self.triangle_area(vertices, simplices),
+            'vertices': vertices,
+            'simplices': simplices,
+            'origins': origins,
+            'bases': bases,
+            'areas': self.triangle_area(vertices, simplices),
         }
         return out
 
@@ -185,7 +182,7 @@ class AoiSampler:
             An (N, 2) array of vertices and an (N, 2) array of indices to
             vertices representing edges.
         """
-        exterior = getattr(polygon, "exterior", polygon)
+        exterior = getattr(polygon, 'exterior', polygon)
         vertices = np.array(exterior.coords)
         # Discard the last vertex - it is a duplicate of the first vertex and
         # duplicates cause problems for the Triangle library.
@@ -301,7 +298,7 @@ class AoiSampler:
         image=None,
         boundary_shape=None,
         raster_transform=None,
-        title="Sampled Windows",
+        title='Sampled Windows',
     ) -> None:
         """Visualize generated windows along with the raster image and fenced area if given
         Args:
@@ -321,17 +318,17 @@ class AoiSampler:
 
         for polygon in polygons:
             x, y = polygon.exterior.xy
-            ax.fill(x, y, alpha=0.5, fc="gray", edgecolor="black")
+            ax.fill(x, y, alpha=0.5, fc='gray', edgecolor='black')
 
         # draw windows on top of the image
         for w in windows:
             x, y = w.exterior.xy
-            ax.plot(x, y, color="red")
+            ax.plot(x, y, color='red')
 
         # plot boudary shape (fenced_area)
         if boundary_shape:
             gpd.GeoSeries(boundary_shape).boundary.plot(
-                ax=ax, color="green", linewidth=2
+                ax=ax, color='green', linewidth=2
             )
 
         ax.autoscale()

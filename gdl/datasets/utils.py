@@ -6,7 +6,9 @@ import rasterio
 from rasterio.features import geometry_mask
 
 
-def create_mask(raster_image_source, geopackages, mask_output_path="mask_output") -> None:
+def create_mask(
+    raster_image_source, geopackages, mask_output_path='mask_output'
+) -> None:
     """Create a raster image mask given geopackage labels.
 
     Args:
@@ -26,11 +28,11 @@ def create_mask(raster_image_source, geopackages, mask_output_path="mask_output"
         raster_image_mask = np.zeros((src.height, src.width), dtype=np.uint8)
 
         for class_name, class_info in geopackages.items():
-            mask_label = class_info["label"]
-            gpkg_path = class_info["path"]
+            mask_label = class_info['label']
+            gpkg_path = class_info['path']
 
             if not os.path.exists(gpkg_path):
-                raise ValueError(f"Path does not exist: {gpkg_path}")
+                raise ValueError(f'Path does not exist: {gpkg_path}')
 
             # Read the GeoPackage file
             geo = gpd.read_file(gpkg_path)
@@ -45,16 +47,16 @@ def create_mask(raster_image_source, geopackages, mask_output_path="mask_output"
 
             raster_image_mask[mask] = mask_label
 
-            print(f"{class_name} RGB color: {mask_label}")
+            print(f'{class_name} RGB color: {mask_label}')
 
         # Save the combined mask as a GeoTIFF file
         output_filename = os.path.splitext(os.path.basename(raster_image_source))[0]
-        output_path = os.path.join(mask_output_path, f"{output_filename}_mask.tif")
+        output_path = os.path.join(mask_output_path, f'{output_filename}_mask.tif')
 
         with rasterio.open(
             output_path,
-            "w",
-            driver="GTiff",
+            'w',
+            driver='GTiff',
             height=raster_image_mask.shape[0],
             width=raster_image_mask.shape[1],
             nodata=0,
@@ -62,18 +64,15 @@ def create_mask(raster_image_source, geopackages, mask_output_path="mask_output"
             dtype=np.uint8,
             crs=src.crs,
             transform=src.transform,
-            compress="none",
+            compress='none',
         ) as dst:
             # Write the mask to the GeoTIFF file
             dst.write(raster_image_mask, 1)
 
-        print(f"Raster image mask is saved to: {output_path}")
+        print(f'Raster image mask is saved to: {output_path}')
 
 
-def create_intersecting_grids(
-    grid_path,
-    fenced_area_path,
-):
+def create_intersecting_grids(grid_path, fenced_area_path):
     """Create intersecting grid cells within a fenced area.
 
     Args:
@@ -96,4 +95,3 @@ def create_intersecting_grids(
     intersecting_grids = grid_gdf[grid_gdf.intersects(fenced_area)]
 
     return intersecting_grids
-

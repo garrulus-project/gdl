@@ -27,11 +27,13 @@ class PolygonSplitter:
         """
         polygons = []
         for _, grid in self.intersecting_grids.iterrows():
-            if grid["id"] in grid_indices:
-                polygons.append(grid["geometry"])
+            if grid['id'] in grid_indices:
+                polygons.append(grid['geometry'])
         return polygons
 
-    def plot(self, raster_image, polygons, ax=None, title="Polygon visualization") -> None:
+    def plot(
+        self, raster_image, polygons, ax=None, title='Polygon visualization'
+    ) -> None:
         """Plot the raster image with the given polygons.
 
         Args:
@@ -47,7 +49,7 @@ class PolygonSplitter:
             for polygon in polygons:
                 exterior_coords = polygon.exterior.coords
                 poly_patch = Polygon(
-                    exterior_coords, edgecolor="red", lw=2, facecolor="none"
+                    exterior_coords, edgecolor='red', lw=2, facecolor='none'
                 )
                 ax.add_patch(poly_patch)
         ax.set_title(title)

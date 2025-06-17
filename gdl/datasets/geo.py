@@ -17,11 +17,11 @@ class GarrulusImage(RasterDataset):
 
     # filename_glob = 'd-RGB-9mm*.tif'
     # filename_regex = r'd-RGB-9mm-reference(?!.*mask).*\.tif$'
-    filename_regex = r"d-RGB-9mm-reference.tif"
+    filename_regex = r'd-RGB-9mm-reference.tif'
     is_image = True
     separate_files = False
-    all_bands = ["B01", "B02", "B03", "B04"]
-    rgb_bands = ["B01", "B02", "B03"]
+    all_bands = ['B01', 'B02', 'B03', 'B04']
+    rgb_bands = ['B01', 'B02', 'B03']
 
     def plot(self, sample):
         """Plot the RGB image from the sample.
@@ -36,7 +36,7 @@ class GarrulusImage(RasterDataset):
         rgb_indices = [self.all_bands.index(band) for band in self.rgb_bands]
 
         # convert to uint8 for plotting
-        image = sample["image"][rgb_indices].to(torch.uint8).permute(1, 2, 0)
+        image = sample['image'][rgb_indices].to(torch.uint8).permute(1, 2, 0)
 
         # Plot the image
         fig, ax = plt.subplots()
@@ -51,7 +51,7 @@ class GarrulusMask(RasterDataset, abc.ABC):
     """
 
     # filename_glob = 'd-RGB-9mm-reference-mask.tif'
-    filename_regex = r"d-RGB-9mm-reference_mask.tif"
+    filename_regex = r'd-RGB-9mm-reference_mask.tif'
     is_image = False
     separate_files = False
 
@@ -65,12 +65,12 @@ class GarrulusMask(RasterDataset, abc.ABC):
     }
 
     label_names = {
-        0: "BACKGROUND",
-        1: "CWD",
-        2: "MISC",
-        3: "CUT",
-        4: "STUMP",
-        5: "VEGETATION",
+        0: 'BACKGROUND',
+        1: 'CWD',
+        2: 'MISC',
+        3: 'CUT',
+        4: 'STUMP',
+        5: 'VEGETATION',
     }
 
     def __init__(self, paths, transforms=None) -> None:
@@ -97,11 +97,11 @@ class GarrulusMask(RasterDataset, abc.ABC):
         Returns:
             fig (matplotlib.figure.Figure): The figure object containing the plot.
         """
-        mask = sample["mask"].squeeze(0)
+        mask = sample['mask'].squeeze(0)
         fig, axs = plt.subplots(nrows=1, ncols=1, figsize=(4, 4))
 
         axs.imshow(
-            mask, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap, interpolation="none"
+            mask, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap, interpolation='none'
         )
 
         # Show legend
@@ -112,18 +112,18 @@ class GarrulusMask(RasterDataset, abc.ABC):
                     self.cmap[i][1] / 255.0,
                     self.cmap[i][2] / 255.0,
                 ],
-                edgecolor="none",
+                edgecolor='none',
                 label=self.label_names[i],
             )
             for i in self.cmap
         ]
         axs.legend(
             handles=legend_elements,
-            loc="upper center",
+            loc='upper center',
             bbox_to_anchor=(0.5, -0.05),
             ncol=2,
         )
-        axs.axis("off")
+        axs.axis('off')
 
         return fig
 
@@ -134,11 +134,11 @@ class GarrulusSegmentationDataset(IntersectionDataset):
     """
 
     label_names = {
-        0: "BACKGROUND",
-        1: "CWD",
-        2: "MISC",
-        3: "STUMP",
-        4: "VEGETATION",
+        0: 'BACKGROUND',
+        1: 'CWD',
+        2: 'MISC',
+        3: 'STUMP',
+        4: 'VEGETATION',
         # 5: 'CUT',
     }
 
@@ -153,9 +153,9 @@ class GarrulusSegmentationDataset(IntersectionDataset):
 
     def __init__(
         self,
-        raster_image_paths="./field-D",
-        mask_paths="datasets/garrulus-field-D",
-        rgb_bands=["B01", "B02", "B03"],
+        raster_image_paths='./field-D',
+        mask_paths='datasets/garrulus-field-D',
+        rgb_bands=['B01', 'B02', 'B03'],
         grid_shape_path=None,
         transforms: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> None:
@@ -193,7 +193,7 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         """
         if not query.intersects(self.bounds):
             raise IndexError(
-                f"query: {query} not found in index with bounds: {self.bounds}"
+                f'query: {query} not found in index with bounds: {self.bounds}'
             )
 
         # All datasets are guaranteed to have a valid query
@@ -204,11 +204,11 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         if self.transforms is not None:
             # create new sample and remove crs and bbox before applying transforms
             new_sample = sample.copy()
-            new_sample.pop("crs")
-            new_sample.pop("bbox")
+            new_sample.pop('crs')
+            new_sample.pop('bbox')
             new_sample = self.transforms(new_sample)
-            sample["image"] = new_sample["image"].squeeze()
-            sample["mask"] = new_sample["mask"].squeeze()
+            sample['image'] = new_sample['image'].squeeze()
+            sample['mask'] = new_sample['mask'].squeeze()
 
         return sample
 
@@ -216,12 +216,14 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         """Verify that the dataset is valid by checking the checksums."""
         raise NotImplementedError
 
-    def plot(self, 
-             sample, 
-             show_mask=True,
-             show_prediction=True,
-             show_titles=True,
-             suptitle=None):
+    def plot(
+        self,
+        sample,
+        show_mask=True,
+        show_prediction=True,
+        show_titles=True,
+        suptitle=None,
+    ):
         """Plot a sample from the dataset.
 
         Args:
@@ -232,37 +234,37 @@ class GarrulusSegmentationDataset(IntersectionDataset):
         Returns:
             fig (matplotlib.figure.Figure): A matplotlib Figure with the rendered sample.
         """
-        if sample["image"].shape[1] > 3:
+        if sample['image'].shape[1] > 3:
             rgb_indices = []
             for band in self.image.rgb_bands:
                 if band in self.image.bands:
                     rgb_indices.append(self.image.bands.index(band))
                 else:
-                    raise ValueError("RGB band does not include all RGB bands")
+                    raise ValueError('RGB band does not include all RGB bands')
 
-            image = sample["image"][rgb_indices].permute(1, 2, 0)
+            image = sample['image'][rgb_indices].permute(1, 2, 0)
         else:
-            image = sample["image"].permute(1, 2, 0)
+            image = sample['image'].permute(1, 2, 0)
 
         # Stretch to the full range
         image = (image - image.min()) / (image.max() - image.min())
 
         if show_mask:
-            mask = sample["mask"].numpy().astype("uint8").squeeze()
+            mask = sample['mask'].numpy().astype('uint8').squeeze()
 
         num_panels = 2 if show_mask else 1
 
-        if show_prediction and "prediction" in sample:
-            predictions = sample["prediction"].numpy().astype("uint8").squeeze()
+        if show_prediction and 'prediction' in sample:
+            predictions = sample['prediction'].numpy().astype('uint8').squeeze()
             num_panels += 1
 
         fig, axs = plt.subplots(1, num_panels, figsize=(num_panels * 4, 5))
         axs[0].imshow(image)
-        axs[0].axis("off")
+        axs[0].axis('off')
 
         if show_mask:
             axs[1].imshow(mask, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
-            axs[1].axis("off")
+            axs[1].axis('off')
 
         # Show legend
         if show_mask or show_prediction:
@@ -273,29 +275,31 @@ class GarrulusSegmentationDataset(IntersectionDataset):
                         self.cmap[i][1] / 255.0,
                         self.cmap[i][2] / 255.0,
                     ],
-                    edgecolor="none",
+                    edgecolor='none',
                     label=self.label_names[i],
                 )
                 for i in self.cmap
             ]
             axs[1].legend(
                 handles=legend_elements,
-                loc="upper center",
+                loc='upper center',
                 bbox_to_anchor=(0.5, -0.05),
                 ncol=2,
             )
 
         if show_titles:
-            axs[0].set_title("Image")
+            axs[0].set_title('Image')
             if show_mask:
-                axs[1].set_title("Mask")
+                axs[1].set_title('Mask')
 
-        if show_prediction and "prediction" in sample:
+        if show_prediction and 'prediction' in sample:
             panel_idx = num_panels - 1
-            axs[panel_idx].imshow(predictions, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap)
-            axs[panel_idx].axis("off")
+            axs[panel_idx].imshow(
+                predictions, vmin=0, vmax=self._cmap.N - 1, cmap=self._cmap
+            )
+            axs[panel_idx].axis('off')
             if show_titles:
-                axs[panel_idx].set_title("Predictions")
+                axs[panel_idx].set_title('Predictions')
 
         if suptitle is not None:
             plt.suptitle(suptitle)
