@@ -4,6 +4,7 @@ import geopandas as gpd
 import kornia.augmentation as K
 import torch
 from kornia.constants import DataKey, Resample
+from lightning.pytorch import LightningDataModule
 from torchgeo.datamodules import GeoDataModule
 from torchgeo.datasets import BoundingBox, UnionDataset
 from torchgeo.datasets.splits import roi_split
@@ -14,7 +15,11 @@ from torchgeo.transforms import AugmentationSequential
 from ..datasets.benchmark import get_field_D_grid_split
 from ..datasets.geo import GarrulusSegmentationDataset
 from ..datasets.polygon import PolygonSplitter
-from ..samplers.batch import RandomBatchAoiGeoSampler, GridBatchAoiGeoSampler
+from ..samplers.batch import (
+    DistributedRandomBatchAoiGeoSampler,
+    GridBatchAoiGeoSampler,
+    RandomBatchAoiGeoSampler,
+)
 
 
 class GarrulusAoiDataModule(GeoDataModule):
@@ -41,6 +46,7 @@ class GarrulusAoiDataModule(GeoDataModule):
         prior_smoothing_constant: float = 1e-4,
         polygon_intersection: float = 0.5,
         window_overlap: float = 0.25,
+        seed: int = 42,
         **kwargs: Any,
     ) -> None:
         """Initialize a new GarrulusAoiDataModule instance.
@@ -77,6 +83,7 @@ class GarrulusAoiDataModule(GeoDataModule):
         self.length = length
         self.polygon_intersection = polygon_intersection
         self.window_overlap = window_overlap
+        self.seed = seed
 
         super().__init__(
             GarrulusSegmentationDataset,
@@ -92,25 +99,25 @@ class GarrulusAoiDataModule(GeoDataModule):
             # K.RandomResizedCrop(_to_tuple(self.patch_size), scale=(0.6, 1.0)),
             K.RandomVerticalFlip(p=0.5),
             K.RandomHorizontalFlip(p=0.5),
-            data_keys=["image", "mask"],
+            data_keys=['image', 'mask'],
             extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+                DataKey.MASK: {'resample': Resample.NEAREST, 'align_corners': None}
             },
         )
         self.test_aug = AugmentationSequential(
             K.Resize(self.img_size),
             K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-            data_keys=["image", "mask"],
+            data_keys=['image', 'mask'],
             extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+                DataKey.MASK: {'resample': Resample.NEAREST, 'align_corners': None}
             },
         )
         self.valid_aug = AugmentationSequential(
             K.Resize(self.img_size),
             K.Normalize(mean=torch.tensor(0), std=torch.tensor(255)),
-            data_keys=["image", "mask"],
+            data_keys=['image', 'mask'],
             extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+                DataKey.MASK: {'resample': Resample.NEAREST, 'align_corners': None}
             },
         )
 
@@ -133,16 +140,41 @@ class GarrulusAoiDataModule(GeoDataModule):
         train_polygon = ps.get_polygon_by_indices(grid_indices=train_indices)
         test_polygon = ps.get_polygon_by_indices(grid_indices=test_indices)
 
-        if stage == "fit":
-            self.train_batch_sampler = RandomBatchAoiGeoSampler(
-                self.dataset,
+        # Detect whether we’re running distributed
+        is_ddp = False
+        if hasattr(self, 'trainer') and self.trainer is not None:
+            is_ddp = self.trainer.world_size > 1 or str(
+                self.trainer.strategy
+            ).lower().startswith('ddp')
+        # also guard against torch.distributed being manually initialized
+        is_ddp = is_ddp or (
+            torch.distributed.is_available() and torch.distributed.is_initialized()
+        )
+
+        if stage == 'fit':
+            SamplerClass = (
+                DistributedRandomBatchAoiGeoSampler
+                if is_ddp
+                else RandomBatchAoiGeoSampler
+            )
+            sampler_kwargs = dict(
+                dataset=self.dataset,
                 size_lims=self.size_lims,
                 polygons=train_polygon,
                 batch_size=self.batch_size,
                 length=self.length,
+                polygon_intersection=self.polygon_intersection,
             )
+            if is_ddp:
+                sampler_kwargs.update(
+                    num_replicas=self.trainer.world_size,
+                    rank=self.trainer.global_rank,
+                    shuffle=True,
+                    seed=self.seed,
+                )
+            self.train_batch_sampler = SamplerClass(**sampler_kwargs)
 
-        if stage in ["fit", "validate"]:
+        if stage in ['fit', 'validate']:
             self.val_sampler = GridBatchAoiGeoSampler(
                 self.dataset,
                 size=self.img_size,
@@ -152,7 +184,7 @@ class GarrulusAoiDataModule(GeoDataModule):
                 window_overlap=self.window_overlap,
             )
 
-        if stage in ["test", "predict"]:
+        if stage in ['test', 'predict']:
             self.test_sampler = GridBatchAoiGeoSampler(
                 self.dataset,
                 size=self.img_size,
@@ -161,6 +193,44 @@ class GarrulusAoiDataModule(GeoDataModule):
                 polygon_intersection=self.polygon_intersection,
                 window_overlap=self.window_overlap,
             )
+
+    def transfer_batch_to_device(self, batch, device, dataloader_idx):
+        """Transfer batch to device.
+
+        Defines how custom data types are moved to the target device.
+
+        Args:
+            batch: A batch of data that needs to be transferred to a new device.
+            device: The target device as defined in PyTorch.
+            dataloader_idx: The index of the dataloader to which the batch belongs.
+
+        Returns:
+            A reference to the data on the new device.
+        """
+        # Non-Tensor values cannot be moved to a device
+        crs = batch.pop('crs', None)
+        bbox = batch.pop('bbox', None)
+
+        # convert batch to dict.
+        # the type of batch defaultdict, which breaks under DDP setting,
+        # https://github.com/pytorch/pytorch/blob/32f585d9346e316e554c8d9bf7548af9f62141fc/torch/distributed/utils.py#L251
+        # For example: type(d) is defaultdict
+        # defaultdict(d.items()) → missing required first argument: the default factory
+        # meaning that, this fails unless you provide a callable as the first argument.
+        batch = dict(batch)
+
+        # pass directly to LightningDataModule, skipping GeoDataModule
+        batch = LightningDataModule.transfer_batch_to_device(
+            self, batch, device, dataloader_idx
+        )
+
+        # add crs and bbox back
+        if crs is not None:
+            batch['crs'] = crs
+        if bbox is not None:
+            batch['bbox'] = bbox
+
+        return batch
 
 
 class GarrulusGridDataModule(GeoDataModule):
@@ -264,9 +334,9 @@ class GarrulusGridDataModule(GeoDataModule):
             K.RandomResizedCrop(_to_tuple(self.patch_size), scale=(0.6, 1.0)),
             K.RandomVerticalFlip(p=0.5),
             K.RandomHorizontalFlip(p=0.5),
-            data_keys=["image", "mask"],
+            data_keys=['image', 'mask'],
             extra_args={
-                DataKey.MASK: {"resample": Resample.NEAREST, "align_corners": None}
+                DataKey.MASK: {'resample': Resample.NEAREST, 'align_corners': None}
             },
         )
 
@@ -279,28 +349,24 @@ class GarrulusGridDataModule(GeoDataModule):
         dataset = GarrulusSegmentationDataset(
             self.raster_image_path, self.mask_path, **self.kwargs
         )
-        (
-            self.train_dataset,
-            self.val_dataset,
-            self.test_dataset,
-        ) = self.create_dataset_from_tiles(dataset)
+        (self.train_dataset, self.val_dataset, self.test_dataset) = (
+            self.create_dataset_from_tiles(dataset)
+        )
 
-        if stage == "fit":
+        if stage == 'fit':
             self.train_batch_sampler = RandomBatchGeoSampler(
                 self.train_dataset, self.patch_size, self.batch_size, self.length
             )
 
-        if stage in ["fit", "validate"]:
+        if stage in ['fit', 'validate']:
             self.val_sampler = GridGeoSampler(
                 self.val_dataset, self.patch_size, self.patch_size
             )
 
         # ToDo: split prediction
-        if stage in ["test", "predict"]:
+        if stage in ['test', 'predict']:
             self.test_sampler = GridGeoSampler(
-                dataset=self.test_dataset,
-                size=self.patch_size,
-                stride=self.patch_size,
+                dataset=self.test_dataset, size=self.patch_size, stride=self.patch_size
             )
             self.predict_dataset = self.test_dataset
             self.predict_sampler = self.test_sampler
@@ -331,27 +397,27 @@ class GarrulusGridDataModule(GeoDataModule):
         # ]
 
         train_grid_gdf = intersecting_grid_gdf[
-            intersecting_grid_gdf["id"].isin(self.train_grid_idx)
+            intersecting_grid_gdf['id'].isin(self.train_grid_idx)
         ]
         test_grid_gdf = intersecting_grid_gdf[
-            intersecting_grid_gdf["id"].isin(self.test_grid_idx)
+            intersecting_grid_gdf['id'].isin(self.test_grid_idx)
         ]
         valid_grid_gdf = intersecting_grid_gdf[
-            intersecting_grid_gdf["id"].isin(self.valid_grid_idx)
+            intersecting_grid_gdf['id'].isin(self.valid_grid_idx)
         ]
 
         # create roi with BoundixBox list for all the splits
         # todo: repalce BBOX maxt and mint with the raster image maxt and mint
         train_roi_list = [
-            BoundingBox(row["left"], row["right"], row["bottom"], row["top"], 0.0, 1e10)
+            BoundingBox(row['left'], row['right'], row['bottom'], row['top'], 0.0, 1e10)
             for _, row in train_grid_gdf.iterrows()
         ]
         test_roi_list = [
-            BoundingBox(row["left"], row["right"], row["bottom"], row["top"], 0.0, 1e10)
+            BoundingBox(row['left'], row['right'], row['bottom'], row['top'], 0.0, 1e10)
             for _, row in test_grid_gdf.iterrows()
         ]
         valid_roi_list = [
-            BoundingBox(row["left"], row["right"], row["bottom"], row["top"], 0.0, 1e10)
+            BoundingBox(row['left'], row['right'], row['bottom'], row['top'], 0.0, 1e10)
             for _, row in valid_grid_gdf.iterrows()
         ]
 
