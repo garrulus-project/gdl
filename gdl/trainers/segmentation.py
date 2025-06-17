@@ -6,12 +6,18 @@
 
 import os
 import warnings
-from typing import Any, Optional, Union
+from typing import Any
 
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
 import torch.nn as nn
+from models.peft import adapter_h, adapter_l, lora, sam_decoder
+from models.segment_anything import sam_model_registry
 from torch import Tensor
+from torchgeo.datasets.utils import unbind_samples
+from torchgeo.models import FCN, get_weight
+from torchgeo.trainers import utils
+from torchgeo.trainers.base import BaseTask
 from torchmetrics import MetricCollection
 from torchmetrics.classification import (
     Dice,
@@ -19,25 +25,10 @@ from torchmetrics.classification import (
     MulticlassJaccardIndex,
     MulticlassPrecision,
     MulticlassRecall,
-    MulticlassConfusionMatrix,
-    MulticlassF1Score,
 )
-from torchmetrics.segmentation import MeanIoU
-
 from torchvision.models._api import WeightsEnum
 
-from torchgeo.datasets.utils import unbind_samples
-from torchgeo.models import FCN, get_weight
-from torchgeo.trainers import utils
-from torchgeo.trainers.base import BaseTask
-
-from models.segment_anything import sam_model_registry
-from models.peft import (
-    adapter_h,
-    adapter_l,
-    lora,
-    sam_decoder,
-)
+from gdl.samplers.batch import DistributedRandomBatchAoiGeoSampler
 
 
 class GarrulusSemanticSegmentationTask(BaseTask):
@@ -45,20 +36,20 @@ class GarrulusSemanticSegmentationTask(BaseTask):
 
     def __init__(
         self,
-        model: str = "unet",
-        backbone: str = "resnet50",
-        weights: Optional[Union[WeightsEnum, str, bool]] = None,
+        model: str = 'unet',
+        backbone: str = 'resnet50',
+        weights: WeightsEnum | str | bool | None = None,
         in_channels: int = 3,
         num_classes: int = 1000,
         num_filters: int = 3,
-        loss: str = "ce",
-        class_weights: Optional[Tensor] = None,
-        ignore_index: Optional[int] = None,
+        loss: str = 'ce',
+        class_weights: Tensor | None = None,
+        ignore_index: int | None = None,
         lr: float = 1e-3,
         patience: int = 10,
         freeze_backbone: bool = False,
         freeze_decoder: bool = False,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> None:
         """Initialize a new SemanticSegmentationTask instance.
 
@@ -107,14 +98,14 @@ class GarrulusSemanticSegmentationTask(BaseTask):
            *learning_rate* and *learning_rate_schedule_patience* were renamed to
            *lr* and *patience*.
         """
-        if ignore_index is not None and loss == "jaccard":
+        if ignore_index is not None and loss == 'jaccard':
             warnings.warn(
                 "ignore_index has no effect on training when loss='jaccard'",
                 UserWarning,
             )
 
         self.weights = weights
-        super().__init__(ignore="weights")
+        super().__init__(ignore='weights')
 
     def configure_losses(self) -> None:
         """Initialize the loss criterion.
@@ -122,28 +113,28 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         Raises:
             ValueError: If *loss* is invalid.
         """
-        loss: str = self.hparams["loss"]
-        ignore_index = self.hparams["ignore_index"]
-        if loss == "ce":
+        loss: str = self.hparams['loss']
+        ignore_index = self.hparams['ignore_index']
+        if loss == 'ce':
             ignore_value = -1000 if ignore_index is None else ignore_index
             self.criterion = nn.CrossEntropyLoss(
-                ignore_index=ignore_value, weight=self.hparams["class_weights"]
+                ignore_index=ignore_value, weight=self.hparams['class_weights']
             )
-        elif loss == "jaccard":
+        elif loss == 'jaccard':
             self.criterion = smp.losses.JaccardLoss(
-                mode="multiclass", classes=self.hparams["num_classes"]
+                mode='multiclass', classes=self.hparams['num_classes']
             )
-        elif loss == "focal":
+        elif loss == 'focal':
             self.criterion = smp.losses.FocalLoss(
-                "multiclass", ignore_index=ignore_index, normalized=True
+                'multiclass', ignore_index=ignore_index, normalized=True
             )
-        elif loss == "dice":
+        elif loss == 'dice':
             self.criterion = smp.losses.DiceLoss(
-                "multiclass", ignore_index=ignore_index, normalized=True
+                'multiclass', ignore_index=ignore_index, normalized=True
             )
         # ToDo: combine loss with ce-> 80% dice + 20% ce
         # ToDo: combine loss with focal -> dice 80% focal 20%
-        # elif loss == "dice_ce":  
+        # elif loss == "dice_ce":
         else:
             raise ValueError(
                 f"Loss type '{loss}' is not valid. "
@@ -165,28 +156,28 @@ class GarrulusSemanticSegmentationTask(BaseTask):
            * 'Macro' averaging, not used here, gives equal weight to each class, useful
              for balanced performance assessment across imbalanced classes.
         """
-        num_classes: int = self.hparams["num_classes"]
-        ignore_index: Optional[int] = self.hparams["ignore_index"]
+        num_classes: int = self.hparams['num_classes']
+        ignore_index: int | None = self.hparams['ignore_index']
         metrics = MetricCollection(
             [
                 # micro is good for class imbalance samples
                 MulticlassAccuracy(
                     num_classes=num_classes,
                     ignore_index=ignore_index,
-                    multidim_average="global",
-                    average="micro",
+                    multidim_average='global',
+                    average='micro',
                 ),
                 MulticlassJaccardIndex(
-                    num_classes=num_classes, ignore_index=ignore_index, average="micro"
+                    num_classes=num_classes, ignore_index=ignore_index, average='micro'
                 ),
-                Dice(num_classes=num_classes, average="micro"),
-                MulticlassPrecision(num_classes=num_classes, average="micro"),
-                MulticlassRecall(num_classes=num_classes, average="micro"),
+                Dice(num_classes=num_classes, average='micro'),
+                MulticlassPrecision(num_classes=num_classes, average='micro'),
+                MulticlassRecall(num_classes=num_classes, average='micro'),
             ]
         )
-        self.train_metrics = metrics.clone(prefix="train_")
-        self.val_metrics = metrics.clone(prefix="val_")
-        self.test_metrics = metrics.clone(prefix="test_")
+        self.train_metrics = metrics.clone(prefix='train_')
+        self.val_metrics = metrics.clone(prefix='val_')
+        self.test_metrics = metrics.clone(prefix='test_')
 
     def configure_models(self) -> None:
         """Initialize the model.
@@ -194,66 +185,76 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         Raises:
             ValueError: If *model* is invalid.
         """
-        model: str = self.hparams["model"]
-        backbone: str = self.hparams["backbone"]
+        model: str = self.hparams['model']
+        backbone: str = self.hparams['backbone']
         weights = self.weights
-        in_channels: int = self.hparams["in_channels"]
-        num_classes: int = self.hparams["num_classes"]
-        num_filters: int = self.hparams["num_filters"]
+        in_channels: int = self.hparams['in_channels']
+        num_classes: int = self.hparams['num_classes']
+        num_filters: int = self.hparams['num_filters']
 
-        if model == "unet":
+        if model == 'unet':
             self.model = smp.Unet(
                 encoder_name=backbone,
-                encoder_weights="imagenet" if weights is True else None,
+                encoder_weights='imagenet' if weights is True else None,
                 in_channels=in_channels,
                 classes=num_classes,
             )
-        elif model == "deeplabv3+":
+        elif model == 'deeplabv3+':
             self.model = smp.DeepLabV3Plus(
                 encoder_name=backbone,
-                encoder_weights="imagenet" if weights is True else None,
+                encoder_weights='imagenet' if weights is True else None,
                 in_channels=in_channels,
                 classes=num_classes,
             )
-        elif model == "fcn":
+        elif model == 'fcn':
             self.model = FCN(
                 in_channels=in_channels, classes=num_classes, num_filters=num_filters
             )
-        elif model == "sam":
+        elif model == 'sam':
             sam_registry_key = self.hparams['sam_registry_key']
             sam, img_embedding_size = sam_model_registry[sam_registry_key](
-                image_size=self.hparams["img_size"],
-                num_classes=self.hparams["num_classes"],
-                checkpoint=self.hparams["sam_ckpt"],
+                image_size=self.hparams['img_size'],
+                num_classes=self.hparams['num_classes'],
+                checkpoint=self.hparams['sam_ckpt'],
                 pixel_mean=[0, 0, 0],
                 pixel_std=[1, 1, 1],
-                high_res_upsampling=self.hparams["high_res_upsampling"],
+                high_res_upsampling=self.hparams['high_res_upsampling'],
             )
-        
+
             # _de -> with dense embedding
-            de = self.hparams["use_dense_embeddings"]
-            if self.hparams["peft"] == "adapter_h":
+            de = self.hparams['use_dense_embeddings']
+            if self.hparams['peft'] == 'adapter_h':
                 self.model = adapter_h.AdapterSAM(
-                    sam, self.hparams["middle_dim"], self.hparams["scaling_factor"], use_dense_embeddings=de
+                    sam,
+                    self.hparams['middle_dim'],
+                    self.hparams['scaling_factor'],
+                    use_dense_embeddings=de,
                 )
-            elif self.hparams["peft"] == "adapter_l":
+            elif self.hparams['peft'] == 'adapter_l':
                 self.model = adapter_l.AdapterSAM(
-                    sam, self.hparams["middle_dim"], self.hparams["scaling_factor"], use_dense_embeddings=de
+                    sam,
+                    self.hparams['middle_dim'],
+                    self.hparams['scaling_factor'],
+                    use_dense_embeddings=de,
                 )
-            elif self.hparams["peft"] == "lora":
-                self.model = lora.LoRASAM(sam, self.hparams["rank"], use_dense_embeddings=de)
-            elif self.hparams["peft"] == "sam_decoder":
+            elif self.hparams['peft'] == 'lora':
+                self.model = lora.LoRASAM(
+                    sam, self.hparams['rank'], use_dense_embeddings=de
+                )
+            elif self.hparams['peft'] == 'sam_decoder':
                 self.model = sam_decoder.SAMDecoder(sam, use_dense_embeddings=de)
-                print("Updating decoder only")
-        
-            if self.hparams["peft_ckpt"] is not None:
-                model.load_peft_parameters(self.hparams["peft_ckpt"])
-        
+                print('Updating decoder only')
+
+            if self.hparams['peft_ckpt'] is not None:
+                model.load_peft_parameters(self.hparams['peft_ckpt'])
+
             total_params = sum(p.numel() for p in self.model.parameters())
-            trainable_params = sum(p.numel() for p in self.model.parameters() if p.requires_grad)
-        
-            print("Total number of parameters: ", total_params)
-            print("Total number of trainable parameters", trainable_params)
+            trainable_params = sum(
+                p.numel() for p in self.model.parameters() if p.requires_grad
+            )
+
+            print('Total number of parameters: ', total_params)
+            print('Total number of trainable parameters', trainable_params)
 
         else:
             raise ValueError(
@@ -261,7 +262,7 @@ class GarrulusSemanticSegmentationTask(BaseTask):
                 "Currently, only supports 'unet', 'deeplabv3+' and 'fcn'."
             )
 
-        if model != "fcn":
+        if model != 'fcn':
             if weights and weights is not True:
                 if isinstance(weights, WeightsEnum):
                     state_dict = weights.get_state_dict(progress=True)
@@ -272,12 +273,12 @@ class GarrulusSemanticSegmentationTask(BaseTask):
                 self.model.encoder.load_state_dict(state_dict)
 
         # Freeze backbone
-        if self.hparams["freeze_backbone"] and model in ["unet", "deeplabv3+"]:
+        if self.hparams['freeze_backbone'] and model in ['unet', 'deeplabv3+']:
             for param in self.model.encoder.parameters():
                 param.requires_grad = False
 
         # Freeze decoder
-        if self.hparams["freeze_decoder"] and model in ["unet", "deeplabv3+"]:
+        if self.hparams['freeze_decoder'] and model in ['unet', 'deeplabv3+']:
             for param in self.model.decoder.parameters():
                 param.requires_grad = False
 
@@ -294,16 +295,18 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         Returns:
             The loss tensor.
         """
-        x = batch["image"]
-        y = batch["mask"]
+        x = batch['image']
+        y = batch['mask']
         if self.hparams['model'] == 'sam':
-            y_hat = self(batched_input=x,
-                         multimask_output=True,
-                         image_size=self.hparams['img_size'])['masks']
+            y_hat = self(
+                batched_input=x,
+                multimask_output=True,
+                image_size=self.hparams['img_size'],
+            )['masks']
         else:
             y_hat = self(x)
         loss: Tensor = self.criterion(y_hat, y)
-        self.log("train_loss", loss)
+        self.log('train_loss', loss)
         self.train_metrics(y_hat, y)
         self.log_dict(self.train_metrics)
         return loss
@@ -318,38 +321,40 @@ class GarrulusSemanticSegmentationTask(BaseTask):
             batch_idx: Integer displaying index of this batch.
             dataloader_idx: Index of the current dataloader.
         """
-        x = batch["image"]
-        y = batch["mask"]
+        x = batch['image']
+        y = batch['mask']
         if self.hparams['model'] == 'sam':
-            y_hat = self(batched_input=x,
-                         multimask_output=True,
-                         image_size=self.hparams['img_size'])['masks']
+            y_hat = self(
+                batched_input=x,
+                multimask_output=True,
+                image_size=self.hparams['img_size'],
+            )['masks']
         else:
             y_hat = self(x)
         loss = self.criterion(y_hat, y)
-        self.log("val_loss", loss)
+        self.log('val_loss', loss)
         self.val_metrics(y_hat, y)
         self.log_dict(self.val_metrics)
 
         if (
             batch_idx < 10
-            and hasattr(self.trainer, "datamodule")
-            and hasattr(self.trainer.datamodule, "plot")
+            and hasattr(self.trainer, 'datamodule')
+            and hasattr(self.trainer.datamodule, 'plot')
             and self.logger
-            and hasattr(self.logger, "experiment")
-            and hasattr(self.logger.experiment, "add_figure")
+            and hasattr(self.logger, 'experiment')
+            and hasattr(self.logger.experiment, 'add_figure')
         ):
             try:
                 datamodule = self.trainer.datamodule
-                batch["prediction"] = y_hat.argmax(dim=1)
-                for key in ["image", "mask", "prediction"]:
+                batch['prediction'] = y_hat.argmax(dim=1)
+                for key in ['image', 'mask', 'prediction']:
                     batch[key] = batch[key].cpu()
                 sample = unbind_samples(batch)[0]
                 fig = datamodule.plot(sample)
                 if fig:
                     summary_writer = self.logger.experiment
                     summary_writer.add_figure(
-                        f"image/{batch_idx}", fig, global_step=self.global_step
+                        f'image/{batch_idx}', fig, global_step=self.global_step
                     )
                     plt.close()
             except ValueError:
@@ -363,16 +368,18 @@ class GarrulusSemanticSegmentationTask(BaseTask):
             batch_idx: Integer displaying index of this batch.
             dataloader_idx: Index of the current dataloader.
         """
-        x = batch["image"]
-        y = batch["mask"]
+        x = batch['image']
+        y = batch['mask']
         if self.hparams['model'] == 'sam':
-            y_hat = self(batched_input=x,
-                         multimask_output=True,
-                         image_size=self.hparams['img_size'])['masks']
+            y_hat = self(
+                batched_input=x,
+                multimask_output=True,
+                image_size=self.hparams['img_size'],
+            )['masks']
         else:
             y_hat = self(x)
         loss = self.criterion(y_hat, y)
-        self.log("test_loss", loss)
+        self.log('test_loss', loss)
         self.test_metrics(y_hat, y)
         self.log_dict(self.test_metrics)
 
@@ -389,11 +396,21 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         Returns:
             Output predicted probabilities.
         """
-        x = batch["image"]
+        x = batch['image']
         if self.hparams['model'] == 'sam':
-            y_hat = self(batched_input=x,
-                         multimask_output=True,
-                         image_size=self.hparams['img_size'])['masks']
+            y_hat = self(
+                batched_input=x,
+                multimask_output=True,
+                image_size=self.hparams['img_size'],
+            )['masks']
         else:
             y_hat = self(x)
         return y_hat
+
+    def on_train_epoch_start(self) -> None:
+        """Update epoch for distributed sampler."""
+        if hasattr(self.trainer.datamodule, 'train_batch_sampler') and isinstance(
+            self.trainer.datamodule.train_batch_sampler,
+            DistributedRandomBatchAoiGeoSampler,
+        ):
+            self.trainer.datamodule.train_batch_sampler.set_epoch(self.current_epoch)
