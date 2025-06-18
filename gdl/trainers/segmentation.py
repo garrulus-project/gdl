@@ -11,8 +11,7 @@ from typing import Any
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
 import torch.nn as nn
-from models.peft import adapter_h, adapter_l, lora, sam_decoder
-from models.segment_anything import sam_model_registry
+
 from torch import Tensor
 from torchgeo.datasets.utils import unbind_samples
 from torchgeo.models import FCN, get_weight
@@ -29,6 +28,8 @@ from torchmetrics.classification import (
 from torchvision.models._api import WeightsEnum
 
 from gdl.samplers.batch import DistributedRandomBatchAoiGeoSampler
+from gdl.models.peft import adapter_h, adapter_l, lora, sam_decoder
+# from models.segment_anything import sam_model_registry
 
 
 class GarrulusSemanticSegmentationTask(BaseTask):
