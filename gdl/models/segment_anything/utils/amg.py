@@ -4,31 +4,31 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+from collections.abc import Generator, ItemsView
+from copy import deepcopy
+from itertools import product
+from typing import Any
+
 import numpy as np
 import torch
 
-import math
-from copy import deepcopy
-from itertools import product
-from typing import Any, Dict, Generator, ItemsView, List, Tuple
-
 
 class MaskData:
-    """
-    A structure for storing masks and their related data in batched format.
+    """A structure for storing masks and their related data in batched format.
     Implements basic filtering and concatenation.
     """
 
     def __init__(self, **kwargs) -> None:
         for v in kwargs.values():
-            assert isinstance(v, (list, np.ndarray, torch.Tensor)), (
-                "MaskData only supports list, numpy arrays, and torch tensors."
+            assert isinstance(v, list | np.ndarray | torch.Tensor), (
+                'MaskData only supports list, numpy arrays, and torch tensors.'
             )
         self._stats = dict(**kwargs)
 
     def __setitem__(self, key: str, item: Any) -> None:
-        assert isinstance(item, (list, np.ndarray, torch.Tensor)), (
-            "MaskData only supports list, numpy arrays, and torch tensors."
+        assert isinstance(item, list | np.ndarray | torch.Tensor), (
+            'MaskData only supports list, numpy arrays, and torch tensors.'
         )
         self._stats[key] = item
 
@@ -54,9 +54,9 @@ class MaskData:
             elif isinstance(v, list):
                 self._stats[k] = [v[i] for i in keep]
             else:
-                raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
+                raise TypeError(f'MaskData key {k} has an unsupported type {type(v)}.')
 
-    def cat(self, new_stats: "MaskData") -> None:
+    def cat(self, new_stats: 'MaskData') -> None:
         for k, v in new_stats.items():
             if k not in self._stats or self._stats[k] is None:
                 self._stats[k] = deepcopy(v)
@@ -67,7 +67,7 @@ class MaskData:
             elif isinstance(v, list):
                 self._stats[k] = self._stats[k] + deepcopy(v)
             else:
-                raise TypeError(f"MaskData key {k} has an unsupported type {type(v)}.")
+                raise TypeError(f'MaskData key {k} has an unsupported type {type(v)}.')
 
     def to_numpy(self) -> None:
         for k, v in self._stats.items():
@@ -76,7 +76,7 @@ class MaskData:
 
 
 def is_box_near_crop_edge(
-    boxes: torch.Tensor, crop_box: List[int], orig_box: List[int], atol: float = 20.0
+    boxes: torch.Tensor, crop_box: list[int], orig_box: list[int], atol: float = 20.0
 ) -> torch.Tensor:
     """Filter masks at the edge of a crop, but not at the edge of the original image."""
     crop_box_torch = torch.as_tensor(crop_box, dtype=torch.float, device=boxes.device)
@@ -95,18 +95,17 @@ def box_xyxy_to_xywh(box_xyxy: torch.Tensor) -> torch.Tensor:
     return box_xywh
 
 
-def batch_iterator(batch_size: int, *args) -> Generator[List[Any], None, None]:
+def batch_iterator(batch_size: int, *args) -> Generator[list[Any], None, None]:
     assert len(args) > 0 and all(len(a) == len(args[0]) for a in args), (
-        "Batched iteration must have inputs of all the same size."
+        'Batched iteration must have inputs of all the same size.'
     )
     n_batches = len(args[0]) // batch_size + int(len(args[0]) % batch_size != 0)
     for b in range(n_batches):
         yield [arg[b * batch_size : (b + 1) * batch_size] for arg in args]
 
 
-def mask_to_rle_pytorch(tensor: torch.Tensor) -> List[Dict[str, Any]]:
-    """
-    Encodes masks to an uncompressed RLE, in the format expected by
+def mask_to_rle_pytorch(tensor: torch.Tensor) -> list[dict[str, Any]]:
+    """Encodes masks to an uncompressed RLE, in the format expected by
     pycoco tools.
     """
     # Put in fortran order and flatten h,w
@@ -172,17 +171,17 @@ def mask_to_rle_pytorch(tensor: torch.Tensor) -> List[Dict[str, Any]]:
         btw_idxs = cur_idxs[1:] - cur_idxs[:-1]
         counts = [] if tensor[i, 0] == 0 else [0]
         counts.extend(btw_idxs.detach().cpu().tolist())
-        out.append({"size": [h, w], "counts": counts})
+        out.append({'size': [h, w], 'counts': counts})
     return out
 
 
-def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
+def rle_to_mask(rle: dict[str, Any]) -> np.ndarray:
     """Compute a binary mask from an uncompressed RLE."""
-    h, w = rle["size"]
+    h, w = rle['size']
     mask = np.empty(h * w, dtype=bool)
     idx = 0
     parity = False
-    for count in rle["counts"]:
+    for count in rle['counts']:
         mask[idx : idx + count] = parity
         idx += count
         parity ^= True
@@ -190,15 +189,14 @@ def rle_to_mask(rle: Dict[str, Any]) -> np.ndarray:
     return mask.transpose()  # Put in C order
 
 
-def area_from_rle(rle: Dict[str, Any]) -> int:
-    return sum(rle["counts"][1::2])
+def area_from_rle(rle: dict[str, Any]) -> int:
+    return sum(rle['counts'][1::2])
 
 
 def calculate_stability_score(
     masks: torch.Tensor, mask_threshold: float, threshold_offset: float
 ) -> torch.Tensor:
-    """
-    Computes the stability score for a batch of masks. The stability
+    """Computes the stability score for a batch of masks. The stability
     score is the IoU between the binary masks obtained by thresholding
     the predicted mask logits at high and low values.
     """
@@ -229,7 +227,7 @@ def build_point_grid(n_per_side: int) -> np.ndarray:
 
 def build_all_layer_point_grids(
     n_per_side: int, n_layers: int, scale_per_layer: int
-) -> List[np.ndarray]:
+) -> list[np.ndarray]:
     """Generates point grids for all crop layers."""
     points_by_layer = []
     for i in range(n_layers + 1):
@@ -239,10 +237,9 @@ def build_all_layer_point_grids(
 
 
 def generate_crop_boxes(
-    im_size: Tuple[int, ...], n_layers: int, overlap_ratio: float
-) -> Tuple[List[List[int]], List[int]]:
-    """
-    Generates a list of crop boxes of different sizes. Each layer
+    im_size: tuple[int, ...], n_layers: int, overlap_ratio: float
+) -> tuple[list[list[int]], list[int]]:
+    """Generates a list of crop boxes of different sizes. Each layer
     has (2**i)**2 boxes for the ith layer.
     """
     crop_boxes, layer_idxs = [], []
@@ -254,7 +251,7 @@ def generate_crop_boxes(
     layer_idxs.append(0)
 
     def crop_len(orig_len, n_crops, overlap):
-        return int(math.ceil((overlap * (n_crops - 1) + orig_len) / n_crops))
+        return math.ceil((overlap * (n_crops - 1) + orig_len) / n_crops)
 
     for i_layer in range(n_layers):
         n_crops_per_side = 2 ** (i_layer + 1)
@@ -275,7 +272,7 @@ def generate_crop_boxes(
     return crop_boxes, layer_idxs
 
 
-def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
+def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: list[int]) -> torch.Tensor:
     x0, y0, _, _ = crop_box
     offset = torch.tensor([[x0, y0, x0, y0]], device=boxes.device)
     # Check if boxes has a channel dimension
@@ -284,7 +281,7 @@ def uncrop_boxes_xyxy(boxes: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
     return boxes + offset
 
 
-def uncrop_points(points: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
+def uncrop_points(points: torch.Tensor, crop_box: list[int]) -> torch.Tensor:
     x0, y0, _, _ = crop_box
     offset = torch.tensor([[x0, y0]], device=points.device)
     # Check if points has a channel dimension
@@ -294,7 +291,7 @@ def uncrop_points(points: torch.Tensor, crop_box: List[int]) -> torch.Tensor:
 
 
 def uncrop_masks(
-    masks: torch.Tensor, crop_box: List[int], orig_h: int, orig_w: int
+    masks: torch.Tensor, crop_box: list[int], orig_h: int, orig_w: int
 ) -> torch.Tensor:
     x0, y0, x1, y1 = crop_box
     if x0 == 0 and y0 == 0 and x1 == orig_w and y1 == orig_h:
@@ -307,22 +304,21 @@ def uncrop_masks(
 
 def remove_small_regions(
     mask: np.ndarray, area_thresh: float, mode: str
-) -> Tuple[np.ndarray, bool]:
-    """
-    Removes small disconnected regions and holes in a mask. Returns the
+) -> tuple[np.ndarray, bool]:
+    """Removes small disconnected regions and holes in a mask. Returns the
     mask and an indicator of if the mask has been modified.
     """
     import cv2  # type: ignore
 
-    assert mode in ["holes", "islands"]
-    correct_holes = mode == "holes"
+    assert mode in ['holes', 'islands']
+    correct_holes = mode == 'holes'
     working_mask = (correct_holes ^ mask).astype(np.uint8)
     n_labels, regions, stats, _ = cv2.connectedComponentsWithStats(working_mask, 8)
     sizes = stats[:, -1][1:]  # Row 0 is background label
     small_regions = [i + 1 for i, s in enumerate(sizes) if s < area_thresh]
     if len(small_regions) == 0:
         return mask, False
-    fill_labels = [0] + small_regions
+    fill_labels = [0, *small_regions]
     if not correct_holes:
         fill_labels = [i for i in range(n_labels) if i not in fill_labels]
         # If every region is below threshold, keep largest
@@ -332,18 +328,17 @@ def remove_small_regions(
     return mask, True
 
 
-def coco_encode_rle(uncompressed_rle: Dict[str, Any]) -> Dict[str, Any]:
+def coco_encode_rle(uncompressed_rle: dict[str, Any]) -> dict[str, Any]:
     from pycocotools import mask as mask_utils  # type: ignore
 
-    h, w = uncompressed_rle["size"]
+    h, w = uncompressed_rle['size']
     rle = mask_utils.frPyObjects(uncompressed_rle, h, w)
-    rle["counts"] = rle["counts"].decode("utf-8")  # Necessary to serialize with json
+    rle['counts'] = rle['counts'].decode('utf-8')  # Necessary to serialize with json
     return rle
 
 
 def batched_mask_to_box(masks: torch.Tensor) -> torch.Tensor:
-    """
-    Calculates boxes in XYXY format around masks. Return [0,0,0,0] for
+    """Calculates boxes in XYXY format around masks. Return [0,0,0,0] for
     an empty mask. For input shape C1xC2x...xHxW, the output shape is C1xC2x...x4.
     """
     # torch.max below raises an error on empty inputs, just skip in this case

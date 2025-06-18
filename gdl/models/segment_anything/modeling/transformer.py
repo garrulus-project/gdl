@@ -4,10 +4,11 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+import math
+
 import torch
 from torch import Tensor, nn
-import math
-from typing import Tuple, Type
+
 from .common import MLPBlock
 
 
@@ -18,11 +19,10 @@ class TwoWayTransformer(nn.Module):
         embedding_dim: int,
         num_heads: int,
         mlp_dim: int,
-        activation: Type[nn.Module] = nn.ReLU,
+        activation: type[nn.Module] = nn.ReLU,
         attention_downsample_rate: int = 2,
     ) -> None:
-        """
-        A transformer decoder that attends to an input image using
+        """A transformer decoder that attends to an input image using
         queries whose positional embedding is supplied.
 
         Args:
@@ -58,13 +58,9 @@ class TwoWayTransformer(nn.Module):
         self.norm_final_attn = nn.LayerNorm(embedding_dim)
 
     def forward(
-        self,
-        image_embedding: Tensor,
-        image_pe: Tensor,
-        point_embedding: Tensor,
-    ) -> Tuple[Tensor, Tensor]:
-        """
-        Args:
+        self, image_embedding: Tensor, image_pe: Tensor, point_embedding: Tensor
+    ) -> tuple[Tensor, Tensor]:
+        """Args:
           image_embedding (torch.Tensor): image to attend to. Should be shape
             B x embedding_dim x h x w for any h and w.
           image_pe (torch.Tensor): the positional encoding to add to the image. Must
@@ -88,10 +84,7 @@ class TwoWayTransformer(nn.Module):
         # Apply transformer blocks and final layernorm
         for layer in self.layers:
             queries, keys = layer(
-                queries=queries,
-                keys=keys,
-                query_pe=point_embedding,
-                key_pe=image_pe,
+                queries=queries, keys=keys, query_pe=point_embedding, key_pe=image_pe
             )
 
         # Apply the final attenion layer from the points to the image
@@ -110,12 +103,11 @@ class TwoWayAttentionBlock(nn.Module):
         embedding_dim: int,
         num_heads: int,
         mlp_dim: int = 2048,
-        activation: Type[nn.Module] = nn.ReLU,
+        activation: type[nn.Module] = nn.ReLU,
         attention_downsample_rate: int = 2,
         skip_first_layer_pe: bool = False,
     ) -> None:
-        """
-        A transformer block with four layers: (1) self-attention of sparse
+        """A transformer block with four layers: (1) self-attention of sparse
         inputs, (2) cross attention of sparse inputs to dense inputs, (3) mlp
         block on sparse inputs, and (4) cross attention of dense inputs to sparse
         inputs.
@@ -148,7 +140,7 @@ class TwoWayAttentionBlock(nn.Module):
 
     def forward(
         self, queries: Tensor, keys: Tensor, query_pe: Tensor, key_pe: Tensor
-    ) -> Tuple[Tensor, Tensor]:
+    ) -> tuple[Tensor, Tensor]:
         # Self attention block
         if self.skip_first_layer_pe:
             queries = self.self_attn(q=queries, k=queries, v=queries)
@@ -181,23 +173,19 @@ class TwoWayAttentionBlock(nn.Module):
 
 
 class Attention(nn.Module):
-    """
-    An attention layer that allows for downscaling the size of the embedding
+    """An attention layer that allows for downscaling the size of the embedding
     after projection to queries, keys, and values.
     """
 
     def __init__(
-        self,
-        embedding_dim: int,
-        num_heads: int,
-        downsample_rate: int = 1,
+        self, embedding_dim: int, num_heads: int, downsample_rate: int = 1
     ) -> None:
         super().__init__()
         self.embedding_dim = embedding_dim
         self.internal_dim = embedding_dim // downsample_rate
         self.num_heads = num_heads
         assert self.internal_dim % num_heads == 0, (
-            "num_heads must divide embedding_dim."
+            'num_heads must divide embedding_dim.'
         )
 
         self.q_proj = nn.Linear(embedding_dim, self.internal_dim)

@@ -1,13 +1,11 @@
 import torch
 import torch.nn as nn
-from torch.nn.parameter import Parameter
 from models.segment_anything.modeling import Sam
+from torch.nn.parameter import Parameter
 
 
 class AdaptMLP(nn.Module):
-    r"""
-    Adapter in parallel with MLP
-    """
+    r"""Adapter in parallel with MLP."""
 
     def __init__(
         self,
@@ -16,7 +14,7 @@ class AdaptMLP(nn.Module):
         down_fn: nn.Module,
         up_fn: nn.Module,
         act_layer=nn.GELU,
-    ):
+    ) -> None:
         super().__init__()
         self.mlp = mlp
         self.down_fn = down_fn
@@ -33,17 +31,11 @@ class AdaptMLP(nn.Module):
 
 
 class AdapterAttention(nn.Module):
-    r"""
-    Adapter after attention
-    """
+    r"""Adapter after attention."""
 
     def __init__(
-        self,
-        attn: nn.Module,
-        down_fn: nn.Module,
-        up_fn: nn.Module,
-        act_layer=nn.GELU,
-    ):
+        self, attn: nn.Module, down_fn: nn.Module, up_fn: nn.Module, act_layer=nn.GELU
+    ) -> None:
         super().__init__()
         self.attn = attn
         self.down_fn = down_fn
@@ -59,9 +51,7 @@ class AdapterAttention(nn.Module):
 
 
 class AdapterSAM(nn.Module):
-    """
-    Based on AdaptMLP
-    """
+    """Based on AdaptMLP."""
 
     def __init__(
         self,
@@ -69,8 +59,8 @@ class AdapterSAM(nn.Module):
         middle_dim: int,
         scaling_factor: int,
         use_dense_embeddings=True,
-    ):
-        super(AdapterSAM, self).__init__()
+    ) -> None:
+        super().__init__()
         self.use_dense_embeddings = use_dense_embeddings
 
         assert middle_dim > 0
@@ -88,7 +78,7 @@ class AdapterSAM(nn.Module):
 
         # disable training dense embedding and no mask dense embedding
         if not self.use_dense_embeddings:
-            print("Dense embedding is not used, grad update is disabled")
+            print('Dense embedding is not used, grad update is disabled')
             for param in sam_model.prompt_encoder.parameters():
                 param.requires_grad = False
 
@@ -102,12 +92,7 @@ class AdapterSAM(nn.Module):
             w_up_linear_mlp = nn.Linear(middle_dim, self.dim, bias=True)
             self.w_down_mlp.append(w_down_linear_mlp)
             self.w_up_mlp.append(w_up_linear_mlp)
-            blk.mlp = AdaptMLP(
-                scaling_factor,
-                mlp,
-                w_down_linear_mlp,
-                w_up_linear_mlp,
-            )
+            blk.mlp = AdaptMLP(scaling_factor, mlp, w_down_linear_mlp, w_up_linear_mlp)
 
         self.sam = sam_model
 
@@ -118,21 +103,20 @@ class AdapterSAM(nn.Module):
 
         save both adapter and fc parameters.
         """
-
-        assert filename.endswith(".pt") or filename.endswith(".pth")
+        assert filename.endswith('.pt') or filename.endswith('.pth')
 
         num_layer = len(self.w_down_mlp)
         mlp_down_tensors = {
-            f"w_c_{i:03d}": self.w_down_mlp[i].weight for i in range(num_layer)
+            f'w_c_{i:03d}': self.w_down_mlp[i].weight for i in range(num_layer)
         }
         mlp_down_bias = {
-            f"w_c_{i:03d}_bia": self.w_down_mlp[i].bias for i in range(num_layer)
+            f'w_c_{i:03d}_bia': self.w_down_mlp[i].bias for i in range(num_layer)
         }
         mlp_up_tensors = {
-            f"w_d_{i:03d}": self.w_up_mlp[i].weight for i in range(num_layer)
+            f'w_d_{i:03d}': self.w_up_mlp[i].weight for i in range(num_layer)
         }
         mlp_up_bias = {
-            f"w_d_{i:03d}_bia": self.w_up_mlp[i].bias for i in range(num_layer)
+            f'w_d_{i:03d}_bia': self.w_up_mlp[i].bias for i in range(num_layer)
         }
 
         # prompt_encoder_tensors = {}
@@ -155,9 +139,9 @@ class AdapterSAM(nn.Module):
         # prompt embedding and mask decoder tensors
         pe_md_tensors = {}
         for key, value in state_dict.items():
-            if "prompt_encoder" in key and self.use_dense_embeddings:
+            if 'prompt_encoder' in key and self.use_dense_embeddings:
                 pe_md_tensors[key] = value
-            if "mask_decoder" in key:
+            if 'mask_decoder' in key:
                 pe_md_tensors[key] = value
 
         merged_dict = {
@@ -176,8 +160,7 @@ class AdapterSAM(nn.Module):
 
         load both adapter and fc parameters.
         """
-
-        assert filename.endswith(".pt") or filename.endswith(".pth")
+        assert filename.endswith('.pt') or filename.endswith('.pth')
 
         if device is not None:
             state_dict = torch.load(filename, map_location=device)
@@ -185,16 +168,16 @@ class AdapterSAM(nn.Module):
             state_dict = torch.load(filename)
 
         for i, w_down_linear_mlp in enumerate(self.w_down_mlp):
-            saved_key = f"w_c_{i:03d}"
-            saved_key_bia = f"w_c_{i:03d}_bia"
+            saved_key = f'w_c_{i:03d}'
+            saved_key_bia = f'w_c_{i:03d}_bia'
             saved_tensor = state_dict[saved_key]
             saved_tensor_bia = state_dict[saved_key_bia]
             w_down_linear_mlp.weight = Parameter(saved_tensor)
             w_down_linear_mlp.bias = Parameter(saved_tensor_bia)
 
         for i, w_up_linear_mlp in enumerate(self.w_up_mlp):
-            saved_key = f"w_d_{i:03d}"
-            saved_key_bia = f"w_d_{i:03d}_bia"
+            saved_key = f'w_d_{i:03d}'
+            saved_key_bia = f'w_d_{i:03d}_bia'
             saved_tensor = state_dict[saved_key]
             saved_tensor_bia = state_dict[saved_key_bia]
             w_up_linear_mlp.weight = Parameter(saved_tensor)
@@ -205,7 +188,7 @@ class AdapterSAM(nn.Module):
 
         # load prompt encoder
         if self.use_dense_embeddings:
-            prompt_encoder_keys = [k for k in sam_keys if "prompt_encoder" in k]
+            prompt_encoder_keys = [k for k in sam_keys if 'prompt_encoder' in k]
             prompt_encoder_values = [state_dict[k] for k in prompt_encoder_keys]
             prompt_encoder_new_state_dict = {
                 k: v for k, v in zip(prompt_encoder_keys, prompt_encoder_values)
@@ -213,7 +196,7 @@ class AdapterSAM(nn.Module):
             sam_dict.update(prompt_encoder_new_state_dict)
 
         # load mask decoder
-        mask_decoder_keys = [k for k in sam_keys if "mask_decoder" in k]
+        mask_decoder_keys = [k for k in sam_keys if 'mask_decoder' in k]
         mask_decoder_values = [state_dict[k] for k in mask_decoder_keys]
         mask_decoder_new_state_dict = {
             k: v for k, v in zip(mask_decoder_keys, mask_decoder_values)

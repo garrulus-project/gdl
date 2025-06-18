@@ -4,19 +4,17 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
+
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-
-from typing import Tuple
 
 from ..modeling import Sam
 from .amg import calculate_stability_score
 
 
 class SamOnnxModel(nn.Module):
-    """
-    This model should not be called directly, but is used in ONNX export.
+    """This model should not be called directly, but is used in ONNX export.
     It combines the prompt encoder, mask decoder, and mask postprocessing of Sam,
     with some functions modified to enable model tracing. Also supports extra
     options controlling what information. See the ONNX export script for details.
@@ -88,7 +86,7 @@ class SamOnnxModel(nn.Module):
         masks = F.interpolate(
             masks,
             size=(self.img_size, self.img_size),
-            mode="bilinear",
+            mode='bilinear',
             align_corners=False,
         )
 
@@ -99,12 +97,12 @@ class SamOnnxModel(nn.Module):
 
         orig_im_size = orig_im_size.to(torch.int64)
         h, w = orig_im_size[0], orig_im_size[1]
-        masks = F.interpolate(masks, size=(h, w), mode="bilinear", align_corners=False)
+        masks = F.interpolate(masks, size=(h, w), mode='bilinear', align_corners=False)
         return masks
 
     def select_masks(
         self, masks: torch.Tensor, iou_preds: torch.Tensor, num_points: int
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         # Determine if we should return the multiclick mask or not from the number of points.
         # The reweighting is used to avoid control flow.
         score_reweight = torch.tensor(

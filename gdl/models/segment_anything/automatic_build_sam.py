@@ -4,9 +4,9 @@
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
 
-import torch
-
 from functools import partial
+
+import torch
 
 from .modeling import (
     ImageEncoderViT,
@@ -51,10 +51,10 @@ def build_sam_vit_b(checkpoint=None):
 
 
 sam_model_registry = {
-    "default": build_sam_vit_h,
-    "vit_h": build_sam_vit_h,
-    "vit_l": build_sam_vit_l,
-    "vit_b": build_sam_vit_b,
+    'default': build_sam_vit_h,
+    'vit_h': build_sam_vit_h,
+    'vit_l': build_sam_vit_l,
+    'vit_b': build_sam_vit_b,
 }
 
 
@@ -93,10 +93,7 @@ def _build_sam(
         mask_decoder=MaskDecoder(
             num_multimask_outputs=3,
             transformer=TwoWayTransformer(
-                depth=2,
-                embedding_dim=prompt_embed_dim,
-                mlp_dim=2048,
-                num_heads=8,
+                depth=2, embedding_dim=prompt_embed_dim, mlp_dim=2048, num_heads=8
             ),
             transformer_dim=prompt_embed_dim,
             iou_head_depth=3,
@@ -107,7 +104,7 @@ def _build_sam(
     )
     sam.eval()
     if checkpoint is not None:
-        with open(checkpoint, "rb") as f:
+        with open(checkpoint, 'rb') as f:
             state_dict = torch.load(f)
         sam.load_state_dict(state_dict)
     return sam
