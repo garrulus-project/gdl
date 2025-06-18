@@ -49,6 +49,15 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         patience: int = 10,
         freeze_backbone: bool = False,
         freeze_decoder: bool = False,
+        peft: str = 'adapter_h',
+        sam_registry_key: str = 'vit_h',
+        sam_ckpt: str = None,
+        peft_ckpt: str = None,
+        img_size: int = 512,
+        high_res_upsampling: bool = False,
+        use_dense_embeddings: bool = False,
+        middle_dim: int = 32,  # adapter
+        scaling_factor: float = 0.1,  # adapter
         **kwargs: Any,
     ) -> None:
         """Initialize a new SemanticSegmentationTask instance.
@@ -408,7 +417,10 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         return y_hat
 
     def on_train_epoch_start(self) -> None:
-        """Update epoch for distributed sampler."""
+        """
+        Update epoch for distributed sampler.
+        ToDo: This function is called twice, enable print statement to debug
+        """
         if hasattr(self.trainer.datamodule, 'train_batch_sampler'):
             if isinstance(
                 self.trainer.datamodule.train_batch_sampler,
@@ -422,5 +434,5 @@ class GarrulusSemanticSegmentationTask(BaseTask):
             if hasattr(
                 self.trainer.datamodule.train_batch_sampler, 'sample_windows'
             ) and callable(self.trainer.datamodule.train_batch_sampler.sample_windows):
-                self.log('train_batch_sampler', 'Re-sampling windows for batch sampler')
+                # print(f'Re-sampling windows for batch sampler epoch: {self.current_epoch}')
                 self.trainer.datamodule.train_batch_sampler.sample_windows()
