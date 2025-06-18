@@ -88,8 +88,34 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         self.length = length
         self.batch_size = batch_size
 
-        # create random samplers, this is only generated once and will be used
-        # across all the epochs, todo: create function to update this for new epoch?
+        # initialized windows or list of bounding boxes for the dataloader
+        self.sample_windows()
+
+    def __iter__(self) -> Iterator[BoundingBox]:
+        """Return the index of a dataset.
+
+        Returns:
+            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
+        """
+        for _ in range(len(self)):
+            # Choose a random tile, weighted by area
+            batch_indices = torch.multinomial(self.areas, self.batch_size)
+            yield [self.bboxes[i] for i in batch_indices]
+
+    def __len__(self) -> int:
+        """Return the number of samples in a single epoch.
+
+        Returns:
+            length of the epoch
+        """
+        return self.length // self.batch_size
+
+    def sample_windows(self) -> None:
+        """Resample windows over the orthomosaic and update bbox list.
+        This function can be called after every epoch to increase
+        randomness of the sampled data over the orthomosaic.
+        """
+        # reset areas and bboxes
         areas = []
         self.bboxes = []
         for _ in range(self.length):
@@ -111,25 +137,6 @@ class RandomBatchAoiGeoSampler(BatchGeoSampler):
         self.areas = torch.tensor(areas, dtype=torch.float)
         if torch.sum(self.areas) == 0:
             self.areas += 1
-
-    def __iter__(self) -> Iterator[BoundingBox]:
-        """Return the index of a dataset.
-
-        Returns:
-            (minx, maxx, miny, maxy, mint, maxt) coordinates to index a dataset
-        """
-        for _ in range(len(self)):
-            # Choose a random tile, weighted by area
-            batch_indices = torch.multinomial(self.areas, self.batch_size)
-            yield [self.bboxes[i] for i in batch_indices]
-
-    def __len__(self) -> int:
-        """Return the number of samples in a single epoch.
-
-        Returns:
-            length of the epoch
-        """
-        return self.length // self.batch_size
 
 
 class GridBatchAoiGeoSampler(BatchGeoSampler):
@@ -291,7 +298,6 @@ class DistributedRandomBatchAoiGeoSampler(RandomBatchAoiGeoSampler):
 
     def __iter__(self) -> Iterator[BoundingBox]:
         g = torch.Generator()
-        print(f'seed: {self.seed} epoch {self.epoch}')
         g.manual_seed(self.seed + self.epoch)
 
         indices = list(range(len(self.bboxes)))
