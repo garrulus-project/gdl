@@ -317,4 +317,4 @@ class DistributedRandomBatchAoiGeoSampler(RandomBatchAoiGeoSampler):
             yield [self.bboxes[j] for j in indices[i : i + self.batch_size]]
 
     def __len__(self) -> int:
-        return self.samples_per_replica
+        return self.samples_per_replica // self.batch_size
