@@ -29,7 +29,7 @@ from torchvision.models._api import WeightsEnum
 
 from gdl.samplers.batch import DistributedRandomBatchAoiGeoSampler
 from gdl.models.peft import adapter_h, adapter_l, lora, sam_decoder
-# from models.segment_anything import sam_model_registry
+from gdl.models.segment_anything import sam_model_registry
 
 
 class GarrulusSemanticSegmentationTask(BaseTask):
