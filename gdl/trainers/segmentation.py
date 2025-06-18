@@ -11,7 +11,6 @@ from typing import Any
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
 import torch.nn as nn
-
 from torch import Tensor
 from torchgeo.datasets.utils import unbind_samples
 from torchgeo.models import FCN, get_weight
@@ -27,9 +26,9 @@ from torchmetrics.classification import (
 )
 from torchvision.models._api import WeightsEnum
 
-from gdl.samplers.batch import DistributedRandomBatchAoiGeoSampler
 from gdl.models.peft import adapter_h, adapter_l, lora, sam_decoder
 from gdl.models.segment_anything import sam_model_registry
+from gdl.samplers.batch import DistributedRandomBatchAoiGeoSampler
 
 
 class GarrulusSemanticSegmentationTask(BaseTask):
@@ -410,8 +409,18 @@ class GarrulusSemanticSegmentationTask(BaseTask):
 
     def on_train_epoch_start(self) -> None:
         """Update epoch for distributed sampler."""
-        if hasattr(self.trainer.datamodule, 'train_batch_sampler') and isinstance(
-            self.trainer.datamodule.train_batch_sampler,
-            DistributedRandomBatchAoiGeoSampler,
-        ):
-            self.trainer.datamodule.train_batch_sampler.set_epoch(self.current_epoch)
+        if hasattr(self.trainer.datamodule, 'train_batch_sampler'):
+            if isinstance(
+                self.trainer.datamodule.train_batch_sampler,
+                DistributedRandomBatchAoiGeoSampler,
+            ):
+                self.trainer.datamodule.train_batch_sampler.set_epoch(
+                    self.current_epoch
+                )
+
+            # resample windows for train data
+            if hasattr(
+                self.trainer.datamodule.train_batch_sampler, 'sample_windows'
+            ) and callable(self.trainer.datamodule.train_batch_sampler.sample_windows):
+                self.log('train_batch_sampler', 'Re-sampling windows for batch sampler')
+                self.trainer.datamodule.train_batch_sampler.sample_windows()
