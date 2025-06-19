@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from models.segment_anything.modeling import Sam
+from gdl.models.segment_anything.modeling import Sam
 
 
 class SAMDecoder(nn.Module):
