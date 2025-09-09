@@ -10,6 +10,9 @@ from typing import Any
 
 import matplotlib.pyplot as plt
 import segmentation_models_pytorch as smp
+
+from torch.optim import AdamW, SGD
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 import torch.nn as nn
 from torch import Tensor
 from torchgeo.datasets.utils import unbind_samples
@@ -130,8 +133,11 @@ class GarrulusSemanticSegmentationTask(BaseTask):
                 ignore_index=ignore_value, weight=self.hparams['class_weights']
             )
         elif loss == 'jaccard':
+            classes = [
+                i for i in range(self.hparams['num_classes']) if i != ignore_index
+            ]
             self.criterion = smp.losses.JaccardLoss(
-                mode='multiclass', classes=self.hparams['num_classes']
+                mode='multiclass', classes=classes
             )
         elif loss == 'focal':
             self.criterion = smp.losses.FocalLoss(
@@ -139,16 +145,31 @@ class GarrulusSemanticSegmentationTask(BaseTask):
             )
         elif loss == 'dice':
             self.criterion = smp.losses.DiceLoss(
-                'multiclass', ignore_index=ignore_index, normalized=True
+                'multiclass', ignore_index=ignore_inde
             )
         # ToDo: combine loss with ce-> 80% dice + 20% ce
         # ToDo: combine loss with focal -> dice 80% focal 20%
-        # elif loss == "dice_ce":
+        elif loss == "ce_dice":
+            ignore_value = -1000 if ignore_index is None else ignore_index
+            self.ce_loss = nn.CrossEntropyLoss(
+                ignore_index=ignore_value, weight=self.hparams['class_weights']
+            )
+            self.dice_loss = smp.losses.DiceLoss(
+                'multiclass', ignore_index=ignore_index, from_logits=True
+            )
+            self.dice_weight = self.hparams.get('dice_weight', 0.8)
+            self.criterion = self.calc_ce_dice_loss
         else:
             raise ValueError(
                 f"Loss type '{loss}' is not valid. "
                 "Currently, supports 'ce', 'jaccard', 'dice' or 'focal' loss."
             )
+
+    def calc_ce_dice_loss(self, predictions, targets):
+        loss_ce = self.ce_loss(predictions, targets.long())
+        loss_dice = self.dice_loss(predictions, targets)
+        loss = (1 - self.dice_weight) * loss_ce + self.dice_weight * loss_dice
+        return loss
 
     def configure_metrics(self) -> None:
         """Initialize the performance metrics.
@@ -167,26 +188,70 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         """
         num_classes: int = self.hparams['num_classes']
         ignore_index: int | None = self.hparams['ignore_index']
+        # metrics = MetricCollection(
+        #     [
+        #         # micro is good for class imbalance samples
+        #         MulticlassAccuracy(
+        #             num_classes=num_classes,
+        #             ignore_index=ignore_index,
+        #             multidim_average='global',
+        #             average='micro',
+        #         ),
+        #         MulticlassJaccardIndex(
+        #             num_classes=num_classes, ignore_index=ignore_index, average='micro'
+        #         ),
+        #         Dice(num_classes=num_classes, average='micro'),
+        #         MulticlassPrecision(num_classes=num_classes, average='micro'),
+        #         MulticlassRecall(num_classes=num_classes, average='micro'),
+        #     ]
+        # )
         metrics = MetricCollection(
             [
-                # micro is good for class imbalance samples
                 MulticlassAccuracy(
                     num_classes=num_classes,
                     ignore_index=ignore_index,
-                    multidim_average='global',
-                    average='micro',
+                    multidim_average="global",
+                    average="micro",
                 ),
                 MulticlassJaccardIndex(
-                    num_classes=num_classes, ignore_index=ignore_index, average='micro'
+                    num_classes=num_classes, ignore_index=ignore_index, average="micro"
                 ),
-                Dice(num_classes=num_classes, average='micro'),
-                MulticlassPrecision(num_classes=num_classes, average='micro'),
-                MulticlassRecall(num_classes=num_classes, average='micro'),
             ]
         )
         self.train_metrics = metrics.clone(prefix='train_')
         self.val_metrics = metrics.clone(prefix='val_')
         self.test_metrics = metrics.clone(prefix='test_')
+
+    def configure_optimizers(
+        self,
+    ) -> "lightning.pytorch.utilities.types.OptimizerLRSchedulerConfig":
+        """Initialize the optimizer and learning rate scheduler.
+
+        Returns:
+            Optimizer and learning rate scheduler.
+        """
+        if "model_optimizer" in self.hparams:
+            if self.hparams.model_optimizer == 'sgd':
+                optimizer = SGD(
+                    filter(lambda p: p.requires_grad, self.parameters()),
+                    lr=self.hparams.lr,
+                    momentum=0.9,
+                    weight_decay=1e-4,
+                )
+                self.print("Using SGD optimizer (trainable only)")
+            else:
+                self.print("Optimizer unknown")
+        else:
+            optimizer = AdamW(self.parameters(), lr=self.hparams["lr"])
+            self.print("Using Adam optimizer for all parameters")
+        
+        scheduler = ReduceLROnPlateau(optimizer, patience=self.hparams["patience"])
+        
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "monitor": self.monitor},
+        }
+
 
     def configure_models(self) -> None:
         """Initialize the model.
@@ -312,10 +377,15 @@ class GarrulusSemanticSegmentationTask(BaseTask):
                 multimask_output=True,
                 image_size=self.hparams['img_size'],
             )['masks']
+            
         else:
             y_hat = self(x)
+
+        #if self.hparams.loss == "ce_dice":
+        #    loss, loss_ce, loss_dice = self.calc_ce_dice_loss(y_hat, y)
+        #else:
         loss: Tensor = self.criterion(y_hat, y)
-        self.log('train_loss', loss)
+        self.log("train_loss", loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         self.train_metrics(y_hat, y)
         self.log_dict(self.train_metrics)
         return loss
@@ -341,7 +411,7 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         else:
             y_hat = self(x)
         loss = self.criterion(y_hat, y)
-        self.log('val_loss', loss)
+        self.log("val_loss", loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         self.val_metrics(y_hat, y)
         self.log_dict(self.val_metrics)
 
@@ -388,7 +458,7 @@ class GarrulusSemanticSegmentationTask(BaseTask):
         else:
             y_hat = self(x)
         loss = self.criterion(y_hat, y)
-        self.log('test_loss', loss)
+        self.log("test_loss", loss, prog_bar=True, logger=True, on_step=False, on_epoch=True)
         self.test_metrics(y_hat, y)
         self.log_dict(self.test_metrics)
 
